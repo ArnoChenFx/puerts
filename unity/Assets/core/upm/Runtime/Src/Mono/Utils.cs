@@ -9,6 +9,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Data;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
@@ -288,6 +289,8 @@ namespace Puerts
                     for (int i = 0; i < props.Length; i++)
                     {
                         var prop = props[i];
+                        if (!prop.CanRead)
+                            continue;
                         if ((typeof(IEnumerable<Type>)).IsAssignableFrom(prop.PropertyType))
                         {
                             var types = prop.GetValue(null, null) as IEnumerable<Type>;
@@ -443,10 +446,12 @@ namespace Puerts
         }
 #endif
     }
+
     internal static class Utils_Internal
     {
         internal static volatile Dictionary<Type, IEnumerable<MethodInfo>> extensionMethodMap = null;
     }
+
 }
 
 #endif

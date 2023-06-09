@@ -8,6 +8,7 @@
 #if EXPERIMENTAL_IL2CPP_PUERTS && ENABLE_IL2CPP
 
 using System;
+using System.Collections.Generic;
 using System.Reflection;
 #if CSHARP_7_3_OR_NEWER
 using System.Threading.Tasks;
@@ -199,8 +200,8 @@ namespace Puerts
                 throw new Exception("T must be Puerts.JSObject when getting the module namespace");
             }
             JSObject jso = moduleExecuter(specifier);
-            JSOGetter<T> getter = Eval<JSOGetter<T>>("(function (jso, str) { return jso[str]; });");
-            return getter(jso, exportee);
+            
+            return jso.Get<T>(exportee);
         }
         public JSObject ExecuteModule(string specifier)
         {

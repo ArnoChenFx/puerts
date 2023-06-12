@@ -439,6 +439,7 @@ function watch(configFilePath) {
             console.log("incremental compile " + sourceFilePath + " using " + (new Date().getTime() - beginTime) + "ms");
         }
         let sourceFile = program.getSourceFile(sourceFilePath);
+        const blueprintCache = new Map();
         if (sourceFile) {
             const diagnostics = [
                 ...program.getSyntacticDiagnostics(sourceFile),
@@ -805,6 +806,11 @@ function watch(configFilePath) {
                 return ret;
             }
             function onBlueprintTypeAddOrChange(baseTypeUClass, type, modulePath) {
+                const cacheKey = `${modulePath}.${type.getSymbol().getName()}`;
+                if (blueprintCache.has(cacheKey)) {
+                    console.log(`blueprint ${type.getSymbol().getName()} already gen, skip`);
+                    return blueprintCache.get(cacheKey);
+                }
                 console.log(`gen blueprint for ${type.getSymbol().getName()}, path: ${modulePath}`);
                 let lsFunctionLibrary = baseTypeUClass && baseTypeUClass.GetName() === "BlueprintFunctionLibrary";
                 let bp = new UE.PEBlueprintAsset();
@@ -923,6 +929,7 @@ function watch(configFilePath) {
                 bp.RemoveNotExistedFunction();
                 bp.HasConstructor = hasConstructor;
                 bp.Save();
+                blueprintCache.set(cacheKey, bp.GeneratedClass);
                 return bp.GeneratedClass;
             }
             function getModuleNames(type) {

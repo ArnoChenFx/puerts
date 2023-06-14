@@ -29,11 +29,11 @@ namespace Puerts.UnitTest
             var jsEnv = UnitTestEnv.GetEnv();
             try 
             {
-                jsEnv.ExecuteModule("whatever.mjs");
+                jsEnv.ExecuteModule("notfound/whatever.mjs");
             } 
             catch(Exception e) 
             {
-                StringAssert.Contains("whatever.mjs", e.Message);
+                StringAssert.Contains("notfound/whatever.mjs", e.Message);
                 return;
             }
             throw new Exception("unexpected to reach here");
@@ -266,6 +266,44 @@ namespace Puerts.UnitTest
             string res = jsEnv.ExecuteModule<string>("import-package", "default");
             Assert.AreEqual(res, "lib in package");
             jsEnv.Tick();
+        }
+        [Test]
+        public void ESModuleExecuteCJS()
+        {
+            var loader = UnitTestEnv.GetLoader();
+            loader.AddMockFileContent("whatever.cjs", @"
+                module.exports = 'hello world';
+            ");
+            loader.AddMockFileContent("whatever.mjs", @"
+                import str from 'whatever.cjs';
+                
+                export default str;
+            ");
+            var jsEnv = UnitTestEnv.GetEnv();
+            string str = jsEnv.ExecuteModule<string>("whatever.mjs", "default");
+
+            Assert.True(str == "hello world");
+            jsEnv.Tick();
+
+        }
+        [Test]
+        public void ESModuleExecuteCJSRelative()
+        {
+            var loader = UnitTestEnv.GetLoader();
+            loader.AddMockFileContent("cjs/whatever.cjs", @"
+                module.exports = 'hello world';
+            ");
+            loader.AddMockFileContent("mjs/whatever.mjs", @"
+                import str from '../cjs/whatever.cjs';
+                
+                export default str;
+            ");
+            var jsEnv = UnitTestEnv.GetEnv();
+            string str = jsEnv.ExecuteModule<string>("mjs/whatever.mjs", "default");
+
+            Assert.True(str == "hello world");
+            jsEnv.Tick();
+
         }
     }
 }

@@ -13,9 +13,10 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using Puerts.Editor.Generator;
 using Puerts.TypeMapping;
-#if !PUERTS_GENERAL
+
+#if !PUERTS_GENERAL && !UNITY_WEBGL
 using Mono.Reflection;
-#endif
+using UnityEngine;
 
 namespace PuertsIl2cpp.Editor
 {
@@ -194,17 +195,17 @@ namespace PuertsIl2cpp.Editor
                 {
                     GenericArgumentInInstructions(method, typeInGenericArgument, processed, mb =>
                     {
-                        if (mb.GetMethodBody() == null || mb.IsGenericMethodDefinition || mb.IsAbstract) return new MethodBase[] { };
                         try
                         {
+                            if (mb.GetMethodBody() == null || mb.IsGenericMethodDefinition || mb.IsAbstract) return new MethodBase[] { };
                             return mb.GetInstructions()
                                 .Select(i => i.Operand)
                                 .Where(o => o is MethodBase)
                                 .Cast<MethodBase>();
                         }
-                        catch (Exception)
+                        catch (Exception e)
                         {
-                            //UnityEngine.Debug.LogWarning(string.Format("get instructions of {0} ({2}:{3}) throw {1}", mb, e.Message, mb.DeclaringType == null ? "" : mb.DeclaringType.Assembly.GetName().Name, mb.DeclaringType));
+                            UnityEngine.Debug.LogWarning(string.Format("get instructions of {0} ({2}:{3}) throw {1}", mb, e.Message, mb.DeclaringType == null ? "" : mb.DeclaringType.Assembly.GetName().Name, mb.DeclaringType));
                             return new MethodBase[] { };
                         }
                     });
@@ -431,6 +432,57 @@ namespace PuertsIl2cpp.Editor
                     }
                 }
             }
+
+            public static void CopyXIl2cppCPlugin(string outDir)
+            {
+                Dictionary<string, string> cPluginCode = new Dictionary<string, string>()
+                {
+                    { "pesapi_adpt.c", Resources.Load<TextAsset>("puerts/xil2cpp/pesapi_adpt.c").text },
+                    { "pesapi.h", Resources.Load<TextAsset>("puerts/xil2cpp/pesapi.h").text },
+                    { "Puerts_il2cpp.cpp", Resources.Load<TextAsset>("puerts/xil2cpp/Puerts_il2cpp.cpp").text },
+                    { "UnityExports4Puerts.h", Resources.Load<TextAsset>("puerts/xil2cpp/UnityExports4Puerts.h").text }
+                };
+
+                foreach (var cPlugin in cPluginCode)
+                {
+                    var path = outDir + cPlugin.Key;
+                    using (StreamWriter textWriter = new StreamWriter(path, false, Encoding.UTF8))
+                    {
+                        textWriter.Write(cPlugin.Value);
+                        textWriter.Flush();
+                    }
+                }
+            }
+
+            public static void GenMarcoHeader(string outDir)
+            {
+                var filePath = outDir + "unityenv_for_puerts.h";
+                string fileContent = "";
+
+                using (var jsEnv = new Puerts.JsEnv())
+                {
+                    var macroHeaderRender = jsEnv.ExecuteModule<Func<bool, bool, string>>("puerts/xil2cpp/unityenv_for_puerts.h.tpl.mjs", "default");
+                    string macroHeaderContent = macroHeaderRender(              
+#if !UNITY_2021_1_OR_NEWER
+                        false,
+#else
+                        true,
+#endif
+#if UNITY_ANDROID || UNITY_IPHONE
+                        false
+#else
+                        true
+#endif
+                    );
+
+                    using (StreamWriter textWriter = new StreamWriter(filePath, false, Encoding.UTF8))
+                    {
+                        textWriter.Write(macroHeaderContent);
+                        textWriter.Flush();
+                    }
+                }
+            }
         }
     }
 }
+#endif

@@ -530,8 +530,7 @@ void FTypeScriptDeclarationGenerator::WriteOutput(UObject* Obj, const FStringBuf
 void FTypeScriptDeclarationGenerator::RestoreBlueprintTypeDeclInfos(bool InGenFull)
 {
     FString FileContent;
-    FFileHelper::LoadFileToString(
-        FileContent, *(IPluginManager::Get().FindPlugin("Puerts")->GetBaseDir() / TEXT("Typing/ue/ue_bp.d.ts")));
+    FFileHelper::LoadFileToString(FileContent, *(FPaths::ProjectDir() / TEXT("Typing/ue/ue_bp.d.ts")));
     RestoreBlueprintTypeDeclInfos(FileContent, InGenFull);
 }
 
@@ -1102,6 +1101,26 @@ void FTypeScriptDeclarationGenerator::GenResolvedFunctions(UStruct* Struct, FStr
         for (FunctionOverloads::RangedForIteratorType OverloadIter = Overloads.begin(); OverloadIter != Overloads.end();
              ++OverloadIter)
         {
+            if (auto Class = Cast<UClass>(Struct))
+            {
+                if (auto Function = Class->FindFunctionByName(*FunctionKey.FunctionName))
+                {
+                    FString DocString = Function->GetMetaData(TEXT("ToolTip"));
+                    if (!DocString.IsEmpty())
+                    {
+                        DocString = DocString.Replace(TEXT("/"), TEXT("_"));
+                        Buff << "    /*\n";
+                        FStringBuffer tmp;
+                        tmp << DocString << "\n";
+                        Buff.Indent(4);
+                        Buff.Prefix.AppendChar(' ');
+                        Buff.Prefix.AppendChar('*');
+                        Buff << tmp;
+                        Buff.Indent(-6);
+                        Buff << "     */\n";
+                    }
+                }
+            }
             Buff << "    " << *OverloadIter << ";\n";
         }
 

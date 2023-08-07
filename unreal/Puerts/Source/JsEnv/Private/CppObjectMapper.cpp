@@ -85,7 +85,7 @@ v8::Local<v8::Value> FCppObjectMapper::FindOrAddCppObject(
 
     // create and link
     auto BindTo = v8::External::New(Context->GetIsolate(), Ptr);
-    v8::Handle<v8::Value> Args[] = {BindTo, v8::Boolean::New(Isolate, PassByPointer)};
+    v8::Local<v8::Value> Args[] = {BindTo, v8::Boolean::New(Isolate, PassByPointer)};
     auto ClassDefinition = FindClassByID(TypeId);
     if (ClassDefinition)
     {
@@ -192,20 +192,51 @@ v8::Local<v8::FunctionTemplate> FCppObjectMapper::GetTemplateOfClass(v8::Isolate
         JSFunctionInfo* FunctionInfo = ClassDefinition->Methods;
         while (FunctionInfo && FunctionInfo->Name && FunctionInfo->Callback)
         {
-            Template->PrototypeTemplate()->Set(
-                v8::String::NewFromUtf8(Isolate, FunctionInfo->Name, v8::NewStringType::kNormal).ToLocalChecked(),
-                v8::FunctionTemplate::New(Isolate, FunctionInfo->Callback,
-                    FunctionInfo->Data ? static_cast<v8::Local<v8::Value>>(v8::External::New(Isolate, FunctionInfo->Data))
-                                       : v8::Local<v8::Value>()));
+#ifndef WITH_QUICKJS
+            auto FastCallInfo = FunctionInfo->ReflectionInfo ? FunctionInfo->ReflectionInfo->FastCallInfo() : nullptr;
+            if (FastCallInfo)
+            {
+                Template->PrototypeTemplate()->Set(
+                    v8::String::NewFromUtf8(Isolate, FunctionInfo->Name, v8::NewStringType::kNormal).ToLocalChecked(),
+                    v8::FunctionTemplate::New(Isolate, FunctionInfo->Callback,
+                        FunctionInfo->Data ? static_cast<v8::Local<v8::Value>>(v8::External::New(Isolate, FunctionInfo->Data))
+                                           : v8::Local<v8::Value>(),
+                        v8::Local<v8::Signature>(), 0, v8::ConstructorBehavior::kThrow, v8::SideEffectType::kHasSideEffect,
+                        FastCallInfo));
+            }
+            else
+#endif
+            {
+                Template->PrototypeTemplate()->Set(
+                    v8::String::NewFromUtf8(Isolate, FunctionInfo->Name, v8::NewStringType::kNormal).ToLocalChecked(),
+                    v8::FunctionTemplate::New(Isolate, FunctionInfo->Callback,
+                        FunctionInfo->Data ? static_cast<v8::Local<v8::Value>>(v8::External::New(Isolate, FunctionInfo->Data))
+                                           : v8::Local<v8::Value>()));
+            }
             ++FunctionInfo;
         }
         FunctionInfo = ClassDefinition->Functions;
         while (FunctionInfo && FunctionInfo->Name && FunctionInfo->Callback)
         {
-            Template->Set(v8::String::NewFromUtf8(Isolate, FunctionInfo->Name, v8::NewStringType::kNormal).ToLocalChecked(),
-                v8::FunctionTemplate::New(Isolate, FunctionInfo->Callback,
-                    FunctionInfo->Data ? static_cast<v8::Local<v8::Value>>(v8::External::New(Isolate, FunctionInfo->Data))
-                                       : v8::Local<v8::Value>()));
+#ifndef WITH_QUICKJS
+            auto FastCallInfo = FunctionInfo->ReflectionInfo ? FunctionInfo->ReflectionInfo->FastCallInfo() : nullptr;
+            if (FastCallInfo)
+            {
+                Template->Set(v8::String::NewFromUtf8(Isolate, FunctionInfo->Name, v8::NewStringType::kNormal).ToLocalChecked(),
+                    v8::FunctionTemplate::New(Isolate, FunctionInfo->Callback,
+                        FunctionInfo->Data ? static_cast<v8::Local<v8::Value>>(v8::External::New(Isolate, FunctionInfo->Data))
+                                           : v8::Local<v8::Value>(),
+                        v8::Local<v8::Signature>(), 0, v8::ConstructorBehavior::kThrow, v8::SideEffectType::kHasSideEffect,
+                        FastCallInfo));
+            }
+            else
+#endif
+            {
+                Template->Set(v8::String::NewFromUtf8(Isolate, FunctionInfo->Name, v8::NewStringType::kNormal).ToLocalChecked(),
+                    v8::FunctionTemplate::New(Isolate, FunctionInfo->Callback,
+                        FunctionInfo->Data ? static_cast<v8::Local<v8::Value>>(v8::External::New(Isolate, FunctionInfo->Data))
+                                           : v8::Local<v8::Value>()));
+            }
             ++FunctionInfo;
         }
 

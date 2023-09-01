@@ -67,22 +67,6 @@
 #include "Blob/Linux/SnapshotBlob.h"
 #endif
 
-#else
-
-#if PLATFORM_WINDOWS
-#include "Blob/Win64MD/SnapshotBlob.h"
-#elif PLATFORM_ANDROID_ARM
-#include "Blob/Android/armv7a/SnapshotBlob.h"
-#elif PLATFORM_ANDROID_ARM64
-#include "Blob/Android/arm64/SnapshotBlob.h"
-#elif PLATFORM_MAC
-#include "Blob/macOS/SnapshotBlob.h"
-#elif PLATFORM_IOS
-#include "Blob/iOS/arm64/SnapshotBlob.h"
-#elif PLATFORM_LINUX
-#include "Blob/Linux/SnapshotBlob.h"
-#endif
-
 #endif
 
 #else
@@ -108,7 +92,9 @@
 
 namespace puerts
 {
+#if !defined(WITH_QUICKJS)
 void LoadPesapiDll(const v8::FunctionCallbackInfo<v8::Value>& Info);
+#endif
 
 FJsEnvImpl::FJsEnvImpl(const FString& ScriptRoot)
     : FJsEnvImpl(std::make_shared<DefaultJSModuleLoader>(ScriptRoot), std::make_shared<FDefaultLogger>(), -1, nullptr, FString(),
@@ -394,16 +380,6 @@ FJsEnvImpl::FJsEnvImpl(std::shared_ptr<IJSModuleLoader> InModuleLoader, std::sha
     }
     v8::V8::SetNativesDataBlob(NativesBlob.get());
 #endif
-    std::unique_ptr<v8::StartupData> SnapshotBlob;
-    if (!SnapshotBlob)
-    {
-        SnapshotBlob = std::make_unique<v8::StartupData>();
-        SnapshotBlob->data = (const char*) SnapshotBlobCode;
-        SnapshotBlob->raw_size = sizeof(SnapshotBlobCode);
-    }
-
-    // 初始化Isolate和DefaultContext
-    v8::V8::SetSnapshotDataBlob(SnapshotBlob.get());
 
     CreateParams.array_buffer_allocator = v8::ArrayBuffer::Allocator::NewDefaultAllocator();
 #if WITH_QUICKJS
@@ -585,10 +561,12 @@ FJsEnvImpl::FJsEnvImpl(std::shared_ptr<IJSModuleLoader> InModuleLoader, std::sha
             v8::FunctionTemplate::New(Isolate, ToCPtrArray)->GetFunction(Context).ToLocalChecked())
         .Check();
 
+#if !defined(WITH_QUICKJS)
     PuertsObj
         ->Set(Context, FV8Utils::ToV8String(Isolate, "load"),
             v8::FunctionTemplate::New(Isolate, LoadPesapiDll)->GetFunction(Context).ToLocalChecked())
         .Check();
+#endif
 
     FString DllExt =
 #if PLATFORM_WINDOWS
@@ -1333,32 +1311,37 @@ void FJsEnvImpl::MakeSureInject(UTypeScriptGeneratedClass* TypeScriptGeneratedCl
 
                         TryReleaseType(TypeScriptGeneratedClass);
                         auto NativeCtor = GetJsClass(TypeScriptGeneratedClass, Context);
-                        v8::Local<v8::Value> VNativeProto;
-                        if (NativeCtor->Get(Context, FV8Utils::ToV8String(Isolate, "prototype")).ToLocal(&VNativeProto) &&
-                            VNativeProto->IsObject())
+                        //如果已经有了bindinfoptr(此时forcereinject一定是true),这种情况下prototype是已经设置过了的,因此不用重复设置prototype
+                        if (!(BindInfoPtr && ForceReinject))
                         {
-                            //{} -> Native Prototype -> Js Prototype -> Super Prototype
-                            v8::Local<v8::Object> NativeProto = VNativeProto.As<v8::Object>();
-                            __USE(BindInfoMap[TypeScriptGeneratedClass].Prototype.Get(Isolate)->SetPrototype(Context, NativeProto));
-                            if (SuperClass)
+                            v8::Local<v8::Value> VNativeProto;
+                            if (NativeCtor->Get(Context, FV8Utils::ToV8String(Isolate, "prototype")).ToLocal(&VNativeProto) &&
+                                VNativeProto->IsObject())
                             {
-                                __USE(Proto->SetPrototype(Context, BindInfoMap[SuperClass].Prototype.Get(Isolate)));
+                                //{} -> Native Prototype -> Js Prototype -> Super Prototype
+                                v8::Local<v8::Object> NativeProto = VNativeProto.As<v8::Object>();
+                                __USE(BindInfoMap[TypeScriptGeneratedClass].Prototype.Get(Isolate)->SetPrototype(
+                                    Context, NativeProto));
+                                if (SuperClass)
+                                {
+                                    __USE(Proto->SetPrototype(Context, BindInfoMap[SuperClass].Prototype.Get(Isolate)));
+                                }
+                                else
+                                {
+                                    __USE(Proto->SetPrototype(Context, NativeProto->GetPrototype()));
+                                }
+                                __USE(NativeProto->SetPrototype(Context, Proto));
+
+#if !PUERTS_FORCE_CPP_UFUNCTION
+                                v8::Local<v8::Value> MergeArgs[] = {Proto, NativeProto, NetMethods};
+
+                                __USE(MergePrototype.Get(Isolate)->Call(Context, v8::Undefined(Isolate), 3, MergeArgs));
+#endif
                             }
                             else
                             {
-                                __USE(Proto->SetPrototype(Context, NativeProto->GetPrototype()));
+                                __USE(BindInfoMap[TypeScriptGeneratedClass].Prototype.Get(Isolate)->SetPrototype(Context, Proto));
                             }
-                            __USE(NativeProto->SetPrototype(Context, Proto));
-
-#if !PUERTS_FORCE_CPP_UFUNCTION
-                            v8::Local<v8::Value> MergeArgs[] = {Proto, NativeProto, NetMethods};
-
-                            __USE(MergePrototype.Get(Isolate)->Call(Context, v8::Undefined(Isolate), 3, MergeArgs));
-#endif
-                        }
-                        else
-                        {
-                            __USE(BindInfoMap[TypeScriptGeneratedClass].Prototype.Get(Isolate)->SetPrototype(Context, Proto));
                         }
 
                         if (RebindObject)

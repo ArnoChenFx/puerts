@@ -36,7 +36,7 @@ public class JsEnv : ModuleRules
     
     public JsEnv(ReadOnlyTargetRules Target) : base(Target)
     {
-        //PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
+        PCHUsage = PCHUsageMode.NoPCHs;
         PublicDefinitions.Add("USING_IN_UNREAL_ENGINE");
         //PublicDefinitions.Add("WITH_V8_FAST_CALL");
         
@@ -540,12 +540,23 @@ public class JsEnv : ModuleRules
         {
             string V8LibraryPath = Path.Combine(LibraryPath, "Win64MD");
 
-            if (Target.bBuildEditor && !ForceStaticLibInEditor)
+            bool UsingSource = false;
+            if (UsingSource)
             {
-                V8LibraryPath = Path.Combine(LibraryPath, "Win64DLL");
-                AddRuntimeDependencies(new string[] { "v8qjs.dll" }, V8LibraryPath, false);
+                PublicAdditionalLibraries.Add(Path.Combine(V8LibraryPath, "libquickjs.dll.a"));
+                PrivateDefinitions.Add("BUILDING_V8_SHARED");
             }
-            PublicAdditionalLibraries.Add(Path.Combine(V8LibraryPath, "quickjs.dll.lib"));
+            else
+            {
+                if (Target.bBuildEditor && !ForceStaticLibInEditor)
+                {
+                    V8LibraryPath = Path.Combine(LibraryPath, "Win64DLL");
+                    AddRuntimeDependencies(new string[] { "v8qjs.dll" }, V8LibraryPath, false);
+                }
+
+                PublicAdditionalLibraries.Add(Path.Combine(V8LibraryPath, "quickjs.dll.lib"));
+            }
+
             AddRuntimeDependencies(new string[] { "msys-quickjs.dll" }, V8LibraryPath, false);
             AddRuntimeDependencies(new string[]
             {

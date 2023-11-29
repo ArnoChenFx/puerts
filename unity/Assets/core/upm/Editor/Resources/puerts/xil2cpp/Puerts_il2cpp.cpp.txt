@@ -92,7 +92,10 @@ static void* ObjectAllocate(Il2CppClass *klass)
 {
     if (Class::IsValuetype(klass))
     {
-        return (void*)(new uint8_t[klass->native_size > 0 ? klass->native_size : (klass->instance_size - sizeof(Il2CppObject))]);
+        auto size = klass->native_size > 0 ? klass->native_size : (klass->instance_size - sizeof(Il2CppObject));
+        auto buff = (void*)(new uint8_t[size]);
+        memset(buff, 0, size);
+        return buff;
     } else {
         auto obj = il2cpp::vm::Object::New(klass);
         return obj;
@@ -369,7 +372,9 @@ static void* CtorCallback(pesapi_callback_info info)
         }
         
 
-        if (!(isValueType && pesapi_get_args_len(info) == 0))
+        if (isValueType && pesapi_get_args_len(info) == 0)
+            return Ptr;
+        else
             pesapi_throw_by_string(info, "invalid arguments");
         
     } 
@@ -392,7 +397,7 @@ static void* CtorCallback(pesapi_callback_info info)
         }
     }
     
-    if(Class::IsValuetype(classInfo->Class))
+    if (isValueType)
     {
         ValueTypeFree(Ptr);
     }

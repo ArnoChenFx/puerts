@@ -116,7 +116,8 @@ var global = global || (function () { return this; }());
                 return localModuleCache[moduleName].exports;
             }
             let m = {"exports":{}};
-            
+            localModuleCache[moduleName] = m;
+            moduleCache[key] = m;
             let sid = addModule(m);
             let script = loadModule(fullPath);
             let isESM = outerIsESM === true || fullPath.endsWith(".mjs")
@@ -148,13 +149,18 @@ var global = global || (function () { return this; }());
                         m.exports = packageConfigure;
                     }
                 } else {
-                    executeModule(fullPath, script, debugPath, sid, isESM);
+                    let r = executeModule(fullPath, script, debugPath, sid, isESM);
+                    if (isESM) {
+                        m.exports = r;
+                    }
                 }
-                localModuleCache[moduleName] = m;
-                moduleCache[key] = m;
+            } catch(e) {
+                localModuleCache[moduleName] = undefined;
+                moduleCache[key] = undefined;
+                throw e;
             } finally {
                 tmpModuleStorage[sid] = undefined;
-            }                
+            }
             return m.exports;
         }
 

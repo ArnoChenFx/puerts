@@ -137,13 +137,11 @@ PuerTS是 Unity/Unreal/Dotnet 下的TypeScript编程解决方案
 * Macos
 
 
-## Ask for help | 技术支持
+## 技术支持
 
 [Discord](https://discord.gg/RYRY7D833n)
 
 [Github Discussion](https://github.com/Tencent/puerts/discussions)
-
-QQ频道：cees1s2p9p
 
 QQ群：942696334
 

@@ -12,9 +12,10 @@
 #include "DataTransfer.h"
 #include "ArrayBuffer.h"
 #include "UECompatible.h"
+#include "PuertsNamespaceDef.h"
 
 #define UsingUClass(CLS)                             \
-    namespace puerts                                 \
+    namespace PUERTS_NAMESPACE                       \
     {                                                \
     template <>                                      \
     struct ScriptTypeName<CLS>                       \
@@ -25,7 +26,7 @@
         }                                            \
     };                                               \
     }                                                \
-    namespace puerts                                 \
+    namespace PUERTS_NAMESPACE                       \
     {                                                \
     template <>                                      \
     struct is_uetype<CLS> : public std::true_type    \
@@ -34,7 +35,7 @@
     }
 
 #define UsingTArrayWithName(CLS, CLSNAME)      \
-    namespace puerts                           \
+    namespace PUERTS_NAMESPACE                 \
     {                                          \
     template <>                                \
     struct ScriptTypeName<TArray<CLS>>         \
@@ -47,8 +48,28 @@
     }                                          \
     __DefObjectType(TArray<CLS>) __DefCDataPointerConverter(TArray<CLS>)
 
+#define UsingCrossModuleCppType(CLS)                                        \
+    namespace PUERTS_NAMESPACE                                              \
+    {                                                                       \
+    template <>                                                             \
+    struct StaticTypeId<CLS>                                                \
+    {                                                                       \
+        static const void* get()                                            \
+        {                                                                   \
+            static const void* cache_type_id = nullptr;                     \
+            if (!cache_type_id)                                             \
+            {                                                               \
+                auto info = PUERTS_NAMESPACE::FindCppTypeClassByName(#CLS); \
+                cache_type_id = info ? info->TypeId : &cache_type_id;       \
+            }                                                               \
+            return cache_type_id;                                           \
+        }                                                                   \
+    };                                                                      \
+    }                                                                       \
+    UsingNamedCppType(CLS, CLS)
+
 #define RegisterTArray(CLS)                                                                              \
-    puerts::DefineClass<TArray<CLS>>()                                                                   \
+    PUERTS_NAMESPACE::DefineClass<TArray<CLS>>()                                                         \
         .Method("Add", SelectFunction(int (TArray<CLS>::*)(const CLS&), &TArray<CLS>::Add))              \
         .Method("Get", SelectFunction(CLS& (TArray<CLS>::*) (int), &TArray<CLS>::operator[]))            \
         .Method("GetRef", SelectFunction(CLS& (TArray<CLS>::*) (int), &TArray<CLS>::operator[]))         \
@@ -75,10 +96,12 @@ struct TSharedPtrExtension
     }
 };
 
-#define RegisterTSharedPtr(ITEMCLS) \
-    puerts::DefineClass<TSharedPtr<ITEMCLS>>().Method("Equals", MakeExtension(&TSharedPtrExtension<ITEMCLS>::Equals)).Register();
+#define RegisterTSharedPtr(ITEMCLS)                                             \
+    PUERTS_NAMESPACE::DefineClass<TSharedPtr<ITEMCLS>>()                        \
+        .Method("Equals", MakeExtension(&TSharedPtrExtension<ITEMCLS>::Equals)) \
+        .Register();
 
-namespace puerts
+namespace PUERTS_NAMESPACE
 {
 namespace v8_impl
 {
@@ -91,7 +114,7 @@ public:
 
     TCharStringHolder(v8::Local<v8::Context> context, const v8::Local<v8::Value> value)
     {
-        Str = UTF8_TO_TCHAR(*v8::String::Utf8Value(context->GetIsolate(), value));
+        Str = FV8Utils::ToFString(context->GetIsolate(), value);
     }
 
     const TCHAR* Data() const
@@ -115,12 +138,12 @@ struct Converter<FString>
 {
     static v8::Local<v8::Value> toScript(v8::Local<v8::Context> context, FString value)
     {
-        return v8::String::NewFromUtf8(context->GetIsolate(), TCHAR_TO_UTF8(*value), v8::NewStringType::kNormal).ToLocalChecked();
+        return FV8Utils::ToV8String(context->GetIsolate(), value);
     }
 
     static FString toCpp(v8::Local<v8::Context> context, const v8::Local<v8::Value>& value)
     {
-        return UTF8_TO_TCHAR(*v8::String::Utf8Value(context->GetIsolate(), value));
+        return FV8Utils::ToFString(context->GetIsolate(), value);
     }
 
     static bool accept(v8::Local<v8::Context> context, const v8::Local<v8::Value>& value)
@@ -134,8 +157,7 @@ struct Converter<FName>
 {
     static v8::Local<v8::Value> toScript(v8::Local<v8::Context> context, FName value)
     {
-        return v8::String::NewFromUtf8(context->GetIsolate(), TCHAR_TO_UTF8(*value.ToString()), v8::NewStringType::kNormal)
-            .ToLocalChecked();
+        return FV8Utils::ToV8String(context->GetIsolate(), value.ToString());
     }
 
     static FName toCpp(v8::Local<v8::Context> context, const v8::Local<v8::Value>& value)
@@ -150,7 +172,7 @@ struct Converter<FName>
                 return *static_cast<FName*>(Data);
             }
         }
-        return UTF8_TO_TCHAR(*v8::String::Utf8Value(context->GetIsolate(), value));
+        return FV8Utils::ToFName(context->GetIsolate(), value);
     }
 
     static bool accept(v8::Local<v8::Context> context, const v8::Local<v8::Value>& value)
@@ -164,7 +186,7 @@ struct Converter<const TCHAR*>
 {
     static v8::Local<v8::Value> toScript(v8::Local<v8::Context> context, const TCHAR* value)
     {
-        return v8::String::NewFromUtf8(context->GetIsolate(), TCHAR_TO_UTF8(value), v8::NewStringType::kNormal).ToLocalChecked();
+        return FV8Utils::ToV8String(context->GetIsolate(), value);
     }
 
     static TCharStringHolder toCpp(v8::Local<v8::Context> context, const v8::Local<v8::Value>& value)
@@ -184,13 +206,12 @@ struct Converter<FText>
 {
     static v8::Local<v8::Value> toScript(v8::Local<v8::Context> context, FText value)
     {
-        return v8::String::NewFromUtf8(context->GetIsolate(), TCHAR_TO_UTF8(*value.ToString()), v8::NewStringType::kNormal)
-            .ToLocalChecked();
+        return FV8Utils::ToV8String(context->GetIsolate(), value.ToString());
     }
 
     static FText toCpp(v8::Local<v8::Context> context, const v8::Local<v8::Value>& value)
     {
-        return FText::FromString(UTF8_TO_TCHAR(*v8::String::Utf8Value(context->GetIsolate(), value)));
+        return FText::FromString(FV8Utils::ToFString(context->GetIsolate(), value));
     }
 
     static bool accept(v8::Local<v8::Context> context, const v8::Local<v8::Value>& value)
@@ -282,12 +303,12 @@ struct Converter<T*, typename std::enable_if<std::is_convertible<T*, const UObje
 {
     static v8::Local<v8::Value> toScript(v8::Local<v8::Context> context, T* value)
     {
-        return ::puerts::DataTransfer::FindOrAddObject<T>(context->GetIsolate(), context, value);
+        return DataTransfer::FindOrAddObject<T>(context->GetIsolate(), context, value);
     }
 
     static T* toCpp(v8::Local<v8::Context> context, const v8::Local<v8::Value>& value)
     {
-        T* Ret = ::puerts::DataTransfer::GetPointerFast<T>(value.As<v8::Object>());
+        T* Ret = DataTransfer::GetPointerFast<T>(value.As<v8::Object>());
         return (!Ret || Ret == RELEASED_UOBJECT_MEMBER || !Ret->IsValidLowLevelFast() || UEObjectIsPendingKill(Ret)) ? nullptr
                                                                                                                      : Ret;
     }
@@ -296,7 +317,7 @@ struct Converter<T*, typename std::enable_if<std::is_convertible<T*, const UObje
     {
         if (value.As<v8::Object>()->IsNullOrUndefined())
             return true;
-        return ::puerts::DataTransfer::IsInstanceOf(context->GetIsolate(), T::StaticClass(), value.As<v8::Object>());
+        return DataTransfer::IsInstanceOf(context->GetIsolate(), T::StaticClass(), value.As<v8::Object>());
     }
 };
 
@@ -306,18 +327,18 @@ struct Converter<T*, typename std::enable_if<!std::is_convertible<T*, const UObj
 {
     static v8::Local<v8::Value> toScript(v8::Local<v8::Context> context, T* value)
     {
-        return ::puerts::DataTransfer::FindOrAddObject<UObject>(context->GetIsolate(), context, static_cast<UObject*>(value));
+        return DataTransfer::FindOrAddObject<UObject>(context->GetIsolate(), context, static_cast<UObject*>(value));
     }
 
     static T* toCpp(v8::Local<v8::Context> context, const v8::Local<v8::Value>& value)
     {
-        T* Ret = ::puerts::DataTransfer::GetPointerFast<T>(value.As<v8::Object>());
+        T* Ret = DataTransfer::GetPointerFast<T>(value.As<v8::Object>());
         return (!Ret || Ret == RELEASED_UOBJECT_MEMBER || !Ret->IsValidLowLevelFast()) ? nullptr : Ret;
     }
 
     static bool accept(v8::Local<v8::Context> context, const v8::Local<v8::Value>& value)
     {
-        return ::puerts::DataTransfer::IsInstanceOf(context->GetIsolate(), UObject::StaticClass(), value.As<v8::Object>());
+        return DataTransfer::IsInstanceOf(context->GetIsolate(), UObject::StaticClass(), value.As<v8::Object>());
     }
 };
 
@@ -457,17 +478,17 @@ struct Converter<T*,
 {
     static v8::Local<v8::Value> toScript(v8::Local<v8::Context> context, T* value)
     {
-        return ::puerts::DataTransfer::FindOrAddStruct<T>(context->GetIsolate(), context, (void*) value, true);
+        return DataTransfer::FindOrAddStruct<T>(context->GetIsolate(), context, (void*) value, true);
     }
 
     static T* toCpp(v8::Local<v8::Context> context, const v8::Local<v8::Value>& value)
     {
-        return ::puerts::DataTransfer::GetPointerFast<T>(value.As<v8::Object>());
+        return DataTransfer::GetPointerFast<T>(value.As<v8::Object>());
     }
 
     static bool accept(v8::Local<v8::Context> context, const v8::Local<v8::Value>& value)
     {
-        return ::puerts::DataTransfer::IsInstanceOf<T>(context->GetIsolate(), value.As<v8::Object>());
+        return DataTransfer::IsInstanceOf<T>(context->GetIsolate(), value.As<v8::Object>());
     }
 };
 
@@ -476,21 +497,21 @@ struct Converter<T, typename std::enable_if<internal::IsUStructHelper<T>::value>
 {
     static v8::Local<v8::Value> toScript(v8::Local<v8::Context> context, T value)
     {
-        return ::puerts::DataTransfer::FindOrAddStruct<T>(context->GetIsolate(), context, new T(value), false);
+        return DataTransfer::FindOrAddStruct<T>(context->GetIsolate(), context, new T(value), false);
     }
 
     static T toCpp(v8::Local<v8::Context> context, const v8::Local<v8::Value>& value)
     {
-        T* ptr = ::puerts::DataTransfer::GetPointerFast<T>(value.As<v8::Object>());
+        T* ptr = DataTransfer::GetPointerFast<T>(value.As<v8::Object>());
         return ptr ? *ptr : T{};
     }
 
     static bool accept(v8::Local<v8::Context> context, const v8::Local<v8::Value>& value)
     {
-        return ::puerts::DataTransfer::IsInstanceOf<T>(context->GetIsolate(), value.As<v8::Object>());
+        return DataTransfer::IsInstanceOf<T>(context->GetIsolate(), value.As<v8::Object>());
     }
 };
 
 }    // namespace v8_impl
 
-}    // namespace puerts
+}    // namespace PUERTS_NAMESPACE

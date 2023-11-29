@@ -89,7 +89,7 @@
 #include "PuertsWasm/WasmJsFunctionParams.h"
 #endif
 
-namespace puerts
+namespace PUERTS_NAMESPACE
 {
 #if !defined(WITH_QUICKJS)
 void LoadPesapiDll(const v8::FunctionCallbackInfo<v8::Value>& Info);
@@ -716,8 +716,34 @@ FJsEnvImpl::~FJsEnvImpl()
 
         ObjectMap.Empty();
 
-        StructCache.Empty();
+        for (auto& KV : StructCache)
+        {
+            FObjectCacheNode* PNode = &KV.Value;
+            while (PNode)
+            {
+                PNode->Value.Reset();
+                PNode = PNode->Next;
+            }
+        }
 
+        for (auto& KV : ContainerCache)
+        {
+            if (KV.Value.NeedRelease)
+            {
+                switch (KV.Value.Type)
+                {
+                    case EArray:
+                        delete static_cast<FScriptArrayEx*>(KV.Key);
+                        break;
+                    case EMap:
+                        delete static_cast<FScriptMapEx*>(KV.Key);
+                        break;
+                    case ESet:
+                        delete static_cast<FScriptSetEx*>(KV.Key);
+                        break;
+                }
+            }
+        }
         ContainerCache.Empty();
 
         for (auto Iter = DelegateMap.begin(); Iter != DelegateMap.end(); Iter++)
@@ -852,12 +878,20 @@ FJsEnvImpl::~FJsEnvImpl()
     GUObjectArray.RemoveUObjectDeleteListener(static_cast<FUObjectArray::FUObjectDeleteListener*>(this));
 
     // quickjs will call UnBind in vm dispose, so cleanup move to here
-#if !WITH_BACKING_STORE_AUTO_FREE && !defined(HAS_ARRAYBUFFER_NEW_WITHOUT_STL)
-    for (auto& KV : ScriptStructFinalizeInfoMap)
+    for (auto& KV : StructCache)
     {
-        FScriptStructWrapper::Free(KV.Value.Struct, KV.Value.Finalize, KV.Key);
+        FObjectCacheNode* PNode = &KV.Value;
+        while (PNode)
+        {
+            if (PNode->UserData)
+            {
+                FScriptStructWrapper* ScriptStructWrapper = (FScriptStructWrapper*) (PNode->UserData);
+                ScriptStructWrapper->Free(KV.Key);
+            }
+            PNode = PNode->Next;
+        }
     }
-#endif
+    StructCache.Empty();
 }
 
 void FJsEnvImpl::InitExtensionMethodsMap()
@@ -1283,7 +1317,7 @@ void FJsEnvImpl::MakeSureInject(UTypeScriptGeneratedClass* TypeScriptGeneratedCl
                                         TsFunctionMap.Add(
                                             Function, {v8::UniquePersistent<v8::Function>(
                                                            Isolate, v8::Local<v8::Function>::Cast(MaybeValue.ToLocalChecked())),
-                                                          std::make_unique<puerts::FFunctionTranslator>(Function, false)});
+                                                          std::make_unique<FFunctionTranslator>(Function, false)});
                                     }
                                     else
                                     {
@@ -2431,10 +2465,18 @@ FScriptDelegate FJsEnvImpl::NewDelegate(v8::Isolate* Isolate, v8::Local<v8::Cont
         {
             DelegateProxy = Cast<UDynamicDelegateProxy>(
                 static_cast<UObject*>(v8::Local<v8::External>::Cast(MaybeProxy.ToLocalChecked())->Value()));
+            if (DelegateProxy->SignatureFunction.Get() != SignatureFunction)
+            {
+                Logger->Error(TEXT("aleady bind to another delegate pleace release first!"));
+                DelegateProxy = nullptr;
+            }
         }
     }
     FScriptDelegate Delegate;
-    Delegate.BindUFunction(DelegateProxy, NAME_Fire);
+    if (DelegateProxy)
+    {
+        Delegate.BindUFunction(DelegateProxy, NAME_Fire);
+    }
     return Delegate;
 }
 
@@ -2567,12 +2609,7 @@ bool FJsEnvImpl::ClearDelegate(v8::Isolate* Isolate, v8::Local<v8::Context>& Con
         SysObjectRetainer.Release(Iter->second.Proxy.Get());
     }
 
-    auto JsCallbacks = Iter->second.JsCallbacks.Get(Isolate);
-    for (uint32_t i = 0; i < JsCallbacks->Length(); ++i)
-    {
-        (void) (JsCallbacks->Set(Context, i, v8::Undefined(Isolate)));
-    }
-
+    Iter->second.JsCallbacks.Reset(Isolate, v8::Array::New(Isolate));
     return true;
 }
 
@@ -2663,12 +2700,13 @@ v8::Local<v8::Value> FJsEnvImpl::FindOrAddContainer(
     auto PersistentValuePtr = ContainerCache.Find(Ptr);
     if (PersistentValuePtr)
     {
-        return v8::Local<v8::Value>::New(Isolate, *PersistentValuePtr);
+        return PersistentValuePtr->Container.Get(Isolate);
     }
 
     auto Result = ArrayTemplate.Get(Isolate)->InstanceTemplate()->NewInstance(Context).ToLocalChecked();
-    FV8Utils::IsolateData<IObjectMapper>(Isolate)->BindContainer(
-        Ptr, Result, PassByPointer ? FScriptArrayWrapper::OnGarbageCollected : FScriptArrayWrapper::OnGarbageCollectedWithFree);
+    BindContainer(Ptr, Result,
+        PassByPointer ? FScriptArrayWrapper::OnGarbageCollected : FScriptArrayWrapper::OnGarbageCollectedWithFree, PassByPointer,
+        EArray);
     DataTransfer::SetPointer(Isolate, Result, GetContainerPropertyTranslator(Property), 1);
     return Result;
 }
@@ -2681,12 +2719,12 @@ v8::Local<v8::Value> FJsEnvImpl::FindOrAddContainer(
     auto PersistentValuePtr = ContainerCache.Find(Ptr);
     if (PersistentValuePtr)
     {
-        return v8::Local<v8::Value>::New(Isolate, *PersistentValuePtr);
+        return PersistentValuePtr->Container.Get(Isolate);
     }
 
     auto Result = SetTemplate.Get(Isolate)->InstanceTemplate()->NewInstance(Context).ToLocalChecked();
-    FV8Utils::IsolateData<IObjectMapper>(Isolate)->BindContainer(
-        Ptr, Result, PassByPointer ? FScriptSetWrapper::OnGarbageCollected : FScriptSetWrapper::OnGarbageCollectedWithFree);
+    BindContainer(Ptr, Result,
+        PassByPointer ? FScriptSetWrapper::OnGarbageCollected : FScriptSetWrapper::OnGarbageCollectedWithFree, PassByPointer, ESet);
     DataTransfer::SetPointer(Isolate, Result, GetContainerPropertyTranslator(Property), 1);
     return Result;
 }
@@ -2699,12 +2737,12 @@ v8::Local<v8::Value> FJsEnvImpl::FindOrAddContainer(v8::Isolate* Isolate, v8::Lo
     auto PersistentValuePtr = ContainerCache.Find(Ptr);
     if (PersistentValuePtr)
     {
-        return v8::Local<v8::Value>::New(Isolate, *PersistentValuePtr);
+        return PersistentValuePtr->Container.Get(Isolate);
     }
 
     auto Result = MapTemplate.Get(Isolate)->InstanceTemplate()->NewInstance(Context).ToLocalChecked();
-    FV8Utils::IsolateData<IObjectMapper>(Isolate)->BindContainer(
-        Ptr, Result, PassByPointer ? FScriptMapWrapper::OnGarbageCollected : FScriptMapWrapper::OnGarbageCollectedWithFree);
+    BindContainer(Ptr, Result,
+        PassByPointer ? FScriptMapWrapper::OnGarbageCollected : FScriptMapWrapper::OnGarbageCollectedWithFree, PassByPointer, EMap);
     DataTransfer::SetPointer(Isolate, Result, GetContainerPropertyTranslator(KeyProperty), 1);
     DataTransfer::SetPointer(Isolate, Result, GetContainerPropertyTranslator(ValueProperty), 2);
     return Result;
@@ -2719,30 +2757,46 @@ void FJsEnvImpl::BindStruct(
 
     if (!PassByPointer)
     {
+// Optimization branch:
+// ArrayBuffer will be gced on v8 worker thread
+// for pod ustruct it's safe to use it
+#if defined(HAS_ARRAYBUFFER_NEW_WITHOUT_STL) || defined(WITH_BACKING_STORE_AUTO_FREE)
+        bool bStructTriviallyFreed = false;
+        if (ScriptStructWrapper->Struct.IsValid())
+        {
+            UScriptStruct* Struct = Cast<UScriptStruct>(ScriptStructWrapper->Struct.Get());
+            bStructTriviallyFreed = Struct->StructFlags & EStructFlags::STRUCT_IsPlainOldData;
+        }
+        if (bStructTriviallyFreed)
+        {
 #if defined(HAS_ARRAYBUFFER_NEW_WITHOUT_STL)
-        auto MemoryHolder = v8::ArrayBuffer_New_Without_Stl(
-            MainIsolate, Ptr, ScriptStructWrapper->Struct->GetStructureSize(),
-            [](void* Data, size_t Length, void* DeleterData)
-            {
-                // TFScriptStructWrapper存放在TypeReflectionMap中，Isolate先Dispose后，对象才跟着销毁
-                FScriptStructWrapper* StructInfo = static_cast<FScriptStructWrapper*>(DeleterData);
-                FScriptStructWrapper::Free(StructInfo->Struct, StructInfo->ExternalFinalize, Data);
-            },
-            ScriptStructWrapper);
-        __USE(JSObject->Set(MainIsolate->GetCurrentContext(), 0, MemoryHolder));
+            auto MemoryHolder = v8::ArrayBuffer_New_Without_Stl(
+                MainIsolate, Ptr, ScriptStructWrapper->Struct->GetStructureSize(),
+                [](void* Data, size_t Length, void* DeleterData)
+                {
+                    // TFScriptStructWrapper存放在TypeReflectionMap中，Isolate先Dispose后，对象才跟着销毁
+                    FScriptStructWrapper* StructInfo = static_cast<FScriptStructWrapper*>(DeleterData);
+                    FScriptStructWrapper::Free(StructInfo->Struct, StructInfo->ExternalFinalize, Data);
+                },
+                ScriptStructWrapper);
+            __USE(JSObject->Set(MainIsolate->GetCurrentContext(), 0, MemoryHolder));
+            return;    // early return
 #elif WITH_BACKING_STORE_AUTO_FREE
-        auto Backing = v8::ArrayBuffer::NewBackingStore(
-            Ptr, ScriptStructWrapper->Struct->GetStructureSize(),
-            [](void* Data, size_t Length, void* DeleterData)
-            {
-                // TFScriptStructWrapper存放在TypeReflectionMap中，Isolate先Dispose后，对象才跟着销毁
-                FScriptStructWrapper* StructInfo = static_cast<FScriptStructWrapper*>(DeleterData);
-                FScriptStructWrapper::Free(StructInfo->Struct, StructInfo->ExternalFinalize, Data);
-            },
-            ScriptStructWrapper);
-        auto MemoryHolder = v8::ArrayBuffer::New(MainIsolate, std::move(Backing));
-        __USE(JSObject->Set(MainIsolate->GetCurrentContext(), 0, MemoryHolder));
-#else
+            auto Backing = v8::ArrayBuffer::NewBackingStore(
+                Ptr, ScriptStructWrapper->Struct->GetStructureSize(),
+                [](void* Data, size_t Length, void* DeleterData)
+                {
+                    // TFScriptStructWrapper存放在TypeReflectionMap中，Isolate先Dispose后，对象才跟着销毁
+                    FScriptStructWrapper* StructInfo = static_cast<FScriptStructWrapper*>(DeleterData);
+                    FScriptStructWrapper::Free(StructInfo->Struct, StructInfo->ExternalFinalize, Data);
+                },
+                ScriptStructWrapper);
+            auto MemoryHolder = v8::ArrayBuffer::New(MainIsolate, std::move(Backing));
+            __USE(JSObject->Set(MainIsolate->GetCurrentContext(), 0, MemoryHolder));
+            return;    // early return
+#endif
+        }
+#endif
         auto CacheNodePtr = StructCache.Find(Ptr);
         if (CacheNodePtr)
         {
@@ -2753,10 +2807,9 @@ void FJsEnvImpl::BindStruct(
             CacheNodePtr = &StructCache.Emplace(Ptr, FObjectCacheNode(ScriptStructWrapper->Struct.Get()));
         }
         CacheNodePtr->Value.Reset(MainIsolate, JSObject);
-        ScriptStructFinalizeInfoMap.Add(Ptr, {ScriptStructWrapper->Struct, ScriptStructWrapper->ExternalFinalize});
+        CacheNodePtr->UserData = ScriptStructWrapper;
         CacheNodePtr->Value.SetWeak<FScriptStructWrapper>(
             ScriptStructWrapper, FScriptStructWrapper::OnGarbageCollectedWithFree, v8::WeakCallbackType::kInternalFields);
-#endif
     }
     else
     {
@@ -2783,9 +2836,6 @@ void FJsEnvImpl::BindCppObject(
 
 void FJsEnvImpl::UnBindStruct(FScriptStructWrapper* ScriptStructWrapper, void* Ptr)
 {
-#if !WITH_BACKING_STORE_AUTO_FREE && !defined(HAS_ARRAYBUFFER_NEW_WITHOUT_STL)
-    ScriptStructFinalizeInfoMap.Remove(Ptr);
-#endif
     auto CacheNodePtr = StructCache.Find(Ptr);
     if (CacheNodePtr)
     {
@@ -2802,11 +2852,13 @@ void FJsEnvImpl::UnBindCppObject(JSClassDefinition* ClassDefinition, void* Ptr)
     CppObjectMapper.UnBindCppObject(ClassDefinition, Ptr);
 }
 
-void FJsEnvImpl::BindContainer(void* Ptr, v8::Local<v8::Object> JSObject, void (*Callback)(const v8::WeakCallbackInfo<void>& data))
+void FJsEnvImpl::BindContainer(void* Ptr, v8::Local<v8::Object> JSObject, void (*Callback)(const v8::WeakCallbackInfo<void>& data),
+    bool PassByPointer, ContainerType Type)
 {
     DataTransfer::SetPointer(MainIsolate, JSObject, Ptr, 0);
-    ContainerCache.Emplace(Ptr, v8::UniquePersistent<v8::Value>(MainIsolate, JSObject));
-    ContainerCache[Ptr].SetWeak<void>(nullptr, Callback, v8::WeakCallbackType::kInternalFields);
+    ContainerCacheItem& Val =
+        ContainerCache.Add(Ptr, {v8::UniquePersistent<v8::Value>(MainIsolate, JSObject), !PassByPointer, Type});
+    Val.Container.SetWeak<void>(nullptr, Callback, v8::WeakCallbackType::kInternalFields);
 }
 
 void FJsEnvImpl::UnBindContainer(void* Ptr)
@@ -3581,7 +3633,7 @@ v8::MaybeLocal<v8::Module> FJsEnvImpl::FetchESModuleTree(v8::Local<v8::Context> 
 }
 #endif
 
-void FJsEnvImpl::ExecuteModule(const FString& ModuleName, std::function<FString(const FString&, const FString&)> Preprocessor)
+void FJsEnvImpl::ExecuteModule(const FString& ModuleName)
 {
     FString OutPath;
     FString DebugPath;
@@ -3631,20 +3683,7 @@ void FJsEnvImpl::ExecuteModule(const FString& ModuleName, std::function<FString(
     else
 #endif
     {
-        v8::Local<v8::String> Source;
-        if (Preprocessor)
-        {
-            FString Script;
-            FFileHelper::BufferToString(Script, Data.GetData(), Data.Num());
-
-            if (Preprocessor)
-                Script = Preprocessor(Script, OutPath);
-            Source = FV8Utils::ToV8String(Isolate, Script);
-        }
-        else
-        {
-            Source = FV8Utils::ToV8StringFromFileContent(Isolate, Data);
-        }
+        v8::Local<v8::String> Source = FV8Utils::ToV8StringFromFileContent(Isolate, Data);
 
 #if PLATFORM_WINDOWS
         // 修改URL分隔符格式，否则无法匹配Inspector协议在打断点时发送的正则表达式，导致断点失败
@@ -3702,10 +3741,26 @@ void FJsEnvImpl::EvalScript(const v8::FunctionCallbackInfo<v8::Value>& Info)
 
         if (RootModule->InstantiateModule(Context, ResolveModuleCallback).FromMaybe(false))
         {
-            auto Result = RootModule->Evaluate(Context);
-            if (!Result.IsEmpty())
+            auto MaybeResult = RootModule->Evaluate(Context);
+            v8::Local<v8::Value> Result;
+            if (MaybeResult.ToLocal(&Result))
             {
-                Info.GetReturnValue().Set(Result.ToLocalChecked());
+                if (Result->IsPromise())
+                {
+                    v8::Local<v8::Promise> ResultPromise(Result.As<v8::Promise>());
+                    while (ResultPromise->State() == v8::Promise::kPending)
+                    {
+                        Isolate->PerformMicrotaskCheckpoint();
+                    }
+
+                    if (ResultPromise->State() == v8::Promise::kRejected)
+                    {
+                        ResultPromise->MarkAsHandled();
+                        Isolate->ThrowException(ResultPromise->Result());
+                        return;
+                    }
+                }
+                Info.GetReturnValue().Set(RootModule->GetModuleNamespace());
             }
         }
 
@@ -4516,4 +4571,4 @@ void FJsEnvImpl::Wasm_OverrideWebAssembly(const v8::FunctionCallbackInfo<v8::Val
 }
 
 #endif
-}    // namespace puerts
+}    // namespace PUERTS_NAMESPACE

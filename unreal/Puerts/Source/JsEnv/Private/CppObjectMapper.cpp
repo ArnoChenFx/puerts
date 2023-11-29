@@ -9,7 +9,7 @@
 #include "CppObjectMapper.h"
 #include "DataTransfer.h"
 
-namespace puerts
+namespace PUERTS_NAMESPACE
 {
 template <typename T>
 inline void __USE(T&&)
@@ -157,8 +157,11 @@ v8::Local<v8::FunctionTemplate> FCppObjectMapper::GetTemplateOfClass(v8::Isolate
                                            : v8::Local<v8::Value>();
             Template->PrototypeTemplate()->SetAccessorProperty(
                 v8::String::NewFromUtf8(Isolate, PropertyInfo->Name, v8::NewStringType::kNormal).ToLocalChecked(),
-                v8::FunctionTemplate::New(Isolate, PropertyInfo->Getter, Data),
-                v8::FunctionTemplate::New(Isolate, PropertyInfo->Setter, Data), PropertyAttribute);
+                PropertyInfo->Getter ? v8::FunctionTemplate::New(Isolate, PropertyInfo->Getter, Data)
+                                     : v8::Local<v8::FunctionTemplate>(),
+                PropertyInfo->Setter ? v8::FunctionTemplate::New(Isolate, PropertyInfo->Setter, Data)
+                                     : v8::Local<v8::FunctionTemplate>(),
+                PropertyAttribute);
             ++PropertyInfo;
         }
 
@@ -172,8 +175,11 @@ v8::Local<v8::FunctionTemplate> FCppObjectMapper::GetTemplateOfClass(v8::Isolate
                                            : v8::Local<v8::Value>();
             Template->SetAccessorProperty(
                 v8::String::NewFromUtf8(Isolate, PropertyInfo->Name, v8::NewStringType::kNormal).ToLocalChecked(),
-                v8::FunctionTemplate::New(Isolate, PropertyInfo->Getter, Data),
-                v8::FunctionTemplate::New(Isolate, PropertyInfo->Setter, Data), PropertyAttribute);
+                PropertyInfo->Getter ? v8::FunctionTemplate::New(Isolate, PropertyInfo->Getter, Data)
+                                     : v8::Local<v8::FunctionTemplate>(),
+                PropertyInfo->Setter ? v8::FunctionTemplate::New(Isolate, PropertyInfo->Setter, Data)
+                                     : v8::Local<v8::FunctionTemplate>(),
+                PropertyAttribute);
             ++PropertyInfo;
         }
 
@@ -321,4 +327,4 @@ void FCppObjectMapper::UnInitialize(v8::Isolate* InIsolate)
     PointerConstructor.Reset();
 }
 
-}    // namespace puerts
+}    // namespace PUERTS_NAMESPACE

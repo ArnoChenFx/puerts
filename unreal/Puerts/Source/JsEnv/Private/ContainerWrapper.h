@@ -22,7 +22,9 @@
 #include "v8.h"
 #pragma warning(pop)
 
-namespace puerts
+#include "NamespaceDef.h"
+
+namespace PUERTS_NAMESPACE
 {
 class FPropertyTranslator;
 FORCEINLINE int32 GetSizeWithAlignment(PropertyMacro* InProperty)
@@ -410,4 +412,4 @@ private:
 
     FORCEINLINE static void InternalGet(const v8::FunctionCallbackInfo<v8::Value>& Info, bool PassByPointer);
 };
-}    // namespace puerts
+}    // namespace PUERTS_NAMESPACE

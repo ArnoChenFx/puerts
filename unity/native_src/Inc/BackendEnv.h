@@ -6,12 +6,10 @@
 */
 
 #pragma once
-#pragma warning(push, 0)
-#include "v8.h"
-#pragma warning(pop)
 
 #include <map>
 #include <algorithm>
+#include "Common.h"
 #include "Log.h"
 #include "V8InspectorImpl.h"
 #if WITH_QUICKJS
@@ -27,7 +25,7 @@
 
 #endif
 
-namespace puerts
+namespace PUERTS_NAMESPACE
 {
     class BackendEnv 
     {

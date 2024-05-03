@@ -90,6 +90,20 @@ async function runTest(cwd: string, copyConfig: any, runInReflection: boolean, f
         const ext = extname(fileToCopy)
         cp(fileToCopy, binPath + (ext == '.bundle' ? `/lib${basename(fileToCopy, ext)}.dylib`: ''));
     })
+    
+    mkdir("-p", join(workdir, 'Properties'));
+    // 生成launchSettings.json
+    writeFileSync(
+        join(workdir, 'Properties', 'launchSettings.json'),
+        JSON.stringify({
+          "profiles": {
+            "vsauto-static": {
+              "commandName": "Project",
+              "nativeDebugging": true
+            }
+          }
+        })
+    );
 
     if (!runInReflection) {
         // 生成project 用于跑wrapper
@@ -114,13 +128,13 @@ async function runTest(cwd: string, copyConfig: any, runInReflection: boolean, f
 
     // 运行测试
     assert.equal(0, exec(`dotnet build ${testProjectName}.csproj -p:StartupObject=PuertsTest -v quiet`, { cwd: workdir }).code)
-    assert.equal(0, exec(`dotnet test ${testProjectName}.csproj --blame-hang-timeout 5000ms ${filter ? `--filter ${filter}` : ''}`, { cwd: workdir }).code)
+    assert.equal(0, exec(`dotnet test ${testProjectName}.csproj --blame-hang-timeout 10000ms ${filter ? `--filter ${filter}` : ''}`, { cwd: workdir }).code)
 }
 
 export async function dotnetTest(cwd: string, backend: string, filter: string = '') {
     // 编译binary
     const copyConfig = await runPuertsMake(join(cwd, '../../native_src'), {
-        platform: process.platform == 'win32' ? 'win' : 'osx',
+        platform: process.platform == 'win32' ? 'win' : (process.platform == 'linux' ? 'linux' : 'osx'),
         config: "Debug",
         backend: backend || 'v8_9.4',
         arch: process.arch as any

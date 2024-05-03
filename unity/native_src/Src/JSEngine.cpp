@@ -60,7 +60,11 @@ namespace PUERTS_NAMESPACE
 
         v8::Local<v8::String> Source = Info[0]->ToString(Context).ToLocalChecked();
         v8::Local<v8::String> Name = Info[1]->ToString(Context).ToLocalChecked();
+#if defined(V8_94_OR_NEWER) && !defined(WITH_QUICKJS)
+        v8::ScriptOrigin Origin(Isolate, Name);
+#else
         v8::ScriptOrigin Origin(Name);
+#endif
         auto Script = v8::Script::Compile(Context, Source, &Origin);
         if (Script.IsEmpty())
         {
@@ -94,7 +98,7 @@ namespace PUERTS_NAMESPACE
 #endif
     {
         GeneralDestructor = nullptr;
-        BackendEnv::GlobalPrepare();
+        FBackendEnv::GlobalPrepare();
 
         std::string Flags = "--no-harmony-top-level-await --stack_size=856";
 #if PUERTS_DEBUG
@@ -108,15 +112,16 @@ namespace PUERTS_NAMESPACE
 #endif
         v8::V8::SetFlagsFromString(Flags.c_str(), static_cast<int>(Flags.size()));
 
-        MainIsolate = BackendEnv.CreateIsolate(external_quickjs_runtime);
+        BackendEnv.Initialize(external_quickjs_runtime, external_quickjs_context);
+        MainIsolate = BackendEnv.MainIsolate;
 
         auto Isolate = MainIsolate;
 #ifdef MULT_BACKENDS
         ResultInfo.PuertsPlugin = InPuertsPlugin;
 #endif
-        ResultInfo.Isolate = MainIsolate;
-        MainIsolate->SetData(0, this);
-        MainIsolate->SetData(1, &BackendEnv);
+        ResultInfo.Isolate = Isolate;
+        Isolate->SetData(0, this);
+        Isolate->SetData(1, &BackendEnv);
 
 #ifdef THREAD_SAFE
         v8::Locker Locker(Isolate);
@@ -124,17 +129,12 @@ namespace PUERTS_NAMESPACE
         v8::Isolate::Scope Isolatescope(Isolate);
         v8::HandleScope HandleScope(Isolate);
 
-#if WITH_QUICKJS
-        v8::Local<v8::Context> Context = (external_quickjs_runtime && external_quickjs_context) ? v8::Context::New(Isolate, external_quickjs_context) : v8::Context::New(Isolate);
-#else
-        v8::Local<v8::Context> Context = v8::Context::New(Isolate);
-#endif
+        v8::Local<v8::Context> Context = BackendEnv.MainContext.Get(Isolate);
         v8::Context::Scope ContextScope(Context);
         ResultInfo.Context.Reset(Isolate, Context);
         v8::Local<v8::Object> Global = Context->Global();
         if (external_quickjs_runtime == nullptr) 
         {
-            BackendEnv.InitInject(MainIsolate, Context);
             Global->Set(Context, FV8Utils::V8String(Isolate, "__puertsGetLastException"), v8::FunctionTemplate::New(Isolate, &GetLastException)->GetFunction(Context).ToLocalChecked()).Check();
         }
         Global->Set(Context, FV8Utils::V8String(Isolate, "__tgjsEvalScript"), v8::FunctionTemplate::New(Isolate, &EvalWithPath)->GetFunction(Context).ToLocalChecked()).Check();
@@ -142,17 +142,17 @@ namespace PUERTS_NAMESPACE
         JSObjectIdMap.Reset(Isolate, v8::Map::New(Isolate));
 
         JSObjectValueGetter = CreateJSFunction(
-            MainIsolate, Context, 
+            Isolate, Context, 
             v8::FunctionTemplate::New(Isolate, &JSObjectValueGetterFunction)->GetFunction(Context).ToLocalChecked()
         );
+
+        BackendEnv.StartPolling();
     }
 
     JSEngine::~JSEngine()
     {
-#if WITH_NODEJS
         LogicTick();
         BackendEnv.StopPolling();
-#endif
         DestroyInspector();
 
         JSObjectIdMap.Reset();
@@ -214,7 +214,7 @@ namespace PUERTS_NAMESPACE
         ResultInfo.Context.Reset();
         ResultInfo.Result.Reset();
 
-        BackendEnv.FreeIsolate();
+        BackendEnv.UnInitialize();
 
         for (int i = 0; i < CallbackInfos.size(); ++i)
         {
@@ -238,10 +238,16 @@ namespace PUERTS_NAMESPACE
             v8::HandleScope HandleScope(MainIsolate);
             v8::Local<v8::Context> Context = ResultInfo.Context.Get(MainIsolate);
             v8::Context::Scope ContextScope(Context);
-            ModuleExecutor = CreateJSFunction(
-                MainIsolate, Context, 
-                v8::FunctionTemplate::New(MainIsolate, esmodule::ExecuteModule)->GetFunction(Context).ToLocalChecked()
-            );
+            v8::Local<v8::Object> Global = Context->Global();
+            auto Ret = Global->Get(Context, v8::String::NewFromUtf8(MainIsolate, EXECUTEMODULEGLOBANAME).ToLocalChecked());
+            v8::Local<v8::Value> Func;
+            if (Ret.ToLocal(&Func) && Func->IsFunction())
+            {
+                ModuleExecutor = CreateJSFunction(
+                    MainIsolate, Context, 
+                    Func.As<v8::Function>()
+                );
+            }
         }
         return ModuleExecutor;
     }
@@ -259,7 +265,11 @@ namespace PUERTS_NAMESPACE
 
         v8::Local<v8::String> Url = FV8Utils::V8String(Isolate, Path == nullptr ? "" : Path);
         v8::Local<v8::String> Source = FV8Utils::V8String(Isolate, Code);
+#if defined(V8_94_OR_NEWER) && !defined(WITH_QUICKJS)
+        v8::ScriptOrigin Origin(Isolate, Url);
+#else
         v8::ScriptOrigin Origin(Url);
+#endif
         v8::TryCatch TryCatch(Isolate);
 
         auto CompiledScript = v8::Script::Compile(Context, Source, &Origin);
@@ -729,4 +739,9 @@ namespace PUERTS_NAMESPACE
 
         return BackendEnv.ClearModuleCache(MainIsolate, Context, Path);
     }
+
+    std::string JSEngine::GetJSStackTrace()
+	{
+        return BackendEnv.GetJSStackTrace();
+	}
 }

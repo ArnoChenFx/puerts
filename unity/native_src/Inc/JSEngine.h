@@ -155,7 +155,7 @@ public:
 
     int32_t Idx;
 
-    BackendEnv BackendEnv;
+    FBackendEnv BackendEnv;
     
 private:
     std::vector<FCallbackInfo*> CallbackInfos;
@@ -190,5 +190,7 @@ public:
     JSFunction* GetModuleExecutor();
 
     v8::Local<v8::FunctionTemplate> ToTemplate(v8::Isolate* Isolate, bool IsStatic, CSharpFunctionCallback Callback, int64_t Data);
+
+    std::string GetJSStackTrace();
 };
 }

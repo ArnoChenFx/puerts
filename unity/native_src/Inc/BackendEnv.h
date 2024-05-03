@@ -25,21 +25,22 @@
 
 #endif
 
+#define EXECUTEMODULEGLOBANAME "__puertsExecuteModule"
+
 namespace PUERTS_NAMESPACE
 {
-    class BackendEnv 
+    class FBackendEnv 
     {
-    private:
+    public:
         v8::Isolate* MainIsolate;
 
         v8::Global<v8::Context> MainContext;
 
-    public:
-        ~BackendEnv() {
+        ~FBackendEnv() {
             PathToModuleMap.clear();
             ScriptIdToPathMap.clear();
         }
-        BackendEnv()
+        FBackendEnv()
         {
             Inspector = nullptr;
         } 
@@ -47,6 +48,10 @@ namespace PUERTS_NAMESPACE
         v8::Isolate::CreateParams* CreateParams;
 
         void LogicTick();
+        
+        void StartPolling();
+        
+        void StopPolling();
 
 #if defined(WITH_NODEJS)
         uv_loop_t NodeUVLoop;
@@ -74,8 +79,6 @@ namespace PUERTS_NAMESPACE
         int Epoll;
 #endif
 
-        void StartPolling();
-
         void UvRunOnce();
 
         void PollEvents();
@@ -83,14 +86,19 @@ namespace PUERTS_NAMESPACE
         static void OnWatcherQueueChanged(uv_loop_t* loop);
 
         void WakeupPollingThread();
-
-        void StopPolling();
-
 #endif
 
         // Module
 #if defined(WITH_QUICKJS)
         std::map<std::string, JSModuleDef*> PathToModuleMap;
+        JSValue JsFileLoader;
+        JSValue JsFileNormalize;
+        
+        JSModuleDef* LoadModule(JSContext* ctx, const char *name);
+        
+        char* ResolveQjsModule(JSContext *ctx, const char *base_name, const char *name, bool throwIfFail);
+        
+        char* NormalizeModuleName(JSContext *ctx, const char *base_name, const char *name);
 #else
         std::map<std::string, v8::UniquePersistent<v8::Module>> PathToModuleMap;
 #endif
@@ -102,17 +110,15 @@ namespace PUERTS_NAMESPACE
         // Inspector
         V8Inspector* Inspector;
 
-        V8_INLINE static BackendEnv* Get(v8::Isolate* Isolate)
+        V8_INLINE static FBackendEnv* Get(v8::Isolate* Isolate)
         {
-            return (BackendEnv*)Isolate->GetData(1);
+            return (FBackendEnv*)Isolate->GetData(1);
         }
         static void GlobalPrepare();
 
-        v8::Isolate* CreateIsolate(void* external_quickjs_runtime);
+        void Initialize(void* external_quickjs_runtime, void* external_quickjs_context);
 
-        void FreeIsolate();
-
-        void InitInject(v8::Isolate* Isolate, v8::Local<v8::Context> Context);
+        void UnInitialize();
         
         void CreateInspector(v8::Isolate* Isolate, const v8::Global<v8::Context>* ContextGlobal, int32_t Port);
 
@@ -121,6 +127,8 @@ namespace PUERTS_NAMESPACE
         bool InspectorTick();
 
         bool ClearModuleCache(v8::Isolate* Isolate, v8::Local<v8::Context> Context, const char* Path);
+
+        std::string GetJSStackTrace();
     };
 
 #if WITH_NODEJS
@@ -132,8 +140,6 @@ namespace PUERTS_NAMESPACE
 
     namespace esmodule 
     {
-        void ExecuteModule(const v8::FunctionCallbackInfo<v8::Value>& info);
-
 #if !WITH_QUICKJS
         v8::MaybeLocal<v8::Module> _ResolveModule(
             v8::Local<v8::Context> Context,
@@ -142,17 +148,30 @@ namespace PUERTS_NAMESPACE
             bool& isFromCache
         );
 
-        v8::MaybeLocal<v8::Module> ResolveModule( v8::Local<v8::Context> Context, v8::Local<v8::String> Specifier, v8::Local<v8::Module> Referrer);
+        v8::MaybeLocal<v8::Module> ResolveModule( v8::Local<v8::Context> Context, v8::Local<v8::String> Specifier, 
+#if V8_94_OR_NEWER
+            v8::Local<v8::FixedArray> ImportAttributes,    // not implement yet
+#endif
+            v8::Local<v8::Module> Referrer);
 
         bool LinkModule(v8::Local<v8::Context> Context, v8::Local<v8::Module> RefModule);
 
+#if V8_MAJOR_VERSION >= 10
+        v8::MaybeLocal<v8::Promise> DynamicImport(v8::Local<v8::Context> Context, v8::Local<v8::Data> HostDefinedOptions,
+            v8::Local<v8::Value> ResourceName, v8::Local<v8::String> Specifier, v8::Local<v8::FixedArray> ImportAssertions);
+#else
         v8::MaybeLocal<v8::Promise> DynamicImport(v8::Local<v8::Context> Context, v8::Local<v8::ScriptOrModule> Referrer, v8::Local<v8::String> Specifier); 
+#endif
 
         void HostInitializeImportMetaObject(v8::Local<v8::Context> Context, v8::Local<v8::Module> Module, v8::Local<v8::Object> meta);
+        
+        void ExecuteModule(const v8::FunctionCallbackInfo<v8::Value>& info);
 #else 
         JSModuleDef* js_module_loader(JSContext* ctx, const char *name, void *opaque);
-
-        char* js_module_resolver(JSContext *ctx, const char *base_name, const char *name, void* opaque);
+    
+        char* module_normalize(JSContext *ctx, const char *base_name, const char *name, void* opaque);
+    
+        JSValue ExecuteModule(JSContext *ctx, JSValueConst this_val, int argc, JSValueConst *argv, int magic, JSValue *func_data);
 #endif
     }
 }

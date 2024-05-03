@@ -205,7 +205,7 @@ namespace Puerts
             {
                 throw new InvalidProgramException("eval null string");
             }
-            return Eval(isolate, Encoding.UTF8.GetBytes(code), path);
+            return Eval(isolate, Encoding.UTF8.GetBytes(code + '\0'), path);
         }
 #else
         [DllImport(DLLNAME, CallingConvention = CallingConvention.Cdecl)]
@@ -313,7 +313,7 @@ namespace Puerts
             else
             {
 #if PUERTS_GENERAL && !PUERTS_GENERAL_OSX
-                __ReturnString(isolate, info, Encoding.UTF8.GetBytes(str));
+                __ReturnString(isolate, info, Encoding.UTF8.GetBytes(str + '\0'));
 #else
                 __ReturnString(isolate, info, str);
 #endif
@@ -422,7 +422,7 @@ namespace Puerts
             }
             else
             {
-                SetStringToOutValue(isolate, value, Encoding.UTF8.GetBytes(str));
+                SetStringToOutValue(isolate, value, Encoding.UTF8.GetBytes(str + '\0'));
             }
         }
 #else
@@ -459,7 +459,7 @@ namespace Puerts
 
         public static void ThrowException(IntPtr isolate, string message)
         {
-            var bytes = Encoding.UTF8.GetBytes(message);
+            var bytes = Encoding.UTF8.GetBytes(message + '\0');
             ThrowException(isolate, bytes);
         }
 #else
@@ -619,6 +619,15 @@ namespace Puerts
         public static extern IntPtr GetArrayBufferFromValue(IntPtr isolate, IntPtr value, out int length, bool isOut);
         [DllImport(DLLNAME, CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr GetArrayBufferFromResult(IntPtr function, out int length);
+
+        [DllImport(DLLNAME, CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr GetJSStackTrace(IntPtr isolate, out int len);
+        public static string GetJSStackTrace(IntPtr isolate)
+        {
+            int strlen;
+            IntPtr str = GetJSStackTrace(isolate, out strlen);
+            return GetStringFromNative(str, strlen);
+        }
     }
 }
 

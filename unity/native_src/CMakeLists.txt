@@ -9,7 +9,11 @@ cmake_policy(SET CMP0091 NEW)
 
 project(PuertsPlugin)
 
-set(CMAKE_CXX_STANDARD 14)
+if("${JS_ENGINE}" MATCHES "^v8_10.6.194")
+    set(CMAKE_CXX_STANDARD 17)
+else ()
+    set(CMAKE_CXX_STANDARD 14)
+endif ()
 
 if ( IOS )
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fembed-bitcode")
@@ -26,6 +30,11 @@ MARK_AS_ADVANCED(PUERTS_PROJECT_DIR)
 
 if ( NOT DEFINED JS_ENGINE )
     set(JS_ENGINE v8)
+endif()
+
+set(USING_MULT_BACKEND OFF)
+if("${JS_ENGINE}" MATCHES "^mult")
+    set(USING_MULT_BACKEND ON)
 endif()
 
 set(BACKEND_ROOT ${PROJECT_SOURCE_DIR}/../native_src/.backends/${JS_ENGINE})
@@ -85,7 +94,7 @@ endmacro(source_group_by_dir)
 source_group_by_dir(${CMAKE_CURRENT_SOURCE_DIR} PUERTS_INC)
 source_group_by_dir(${CMAKE_CURRENT_SOURCE_DIR} PUERTS_SRC)
 
-if("${JS_ENGINE}" STREQUAL "mult")
+if( USING_MULT_BACKEND )
     message("mult backend>>>>>>>>>>>>>>>>>>>>>>>>")
     set ( PUERTS_SRC
         Src/Log.cpp
@@ -136,7 +145,7 @@ option ( USING_V8 "using v8" ON )
 option ( USING_QJS "using quickjs" ON )
 option ( USING_QJS_SUFFIX "add _qjs to namespace of simule v8 api " ON )
 
-if("${JS_ENGINE}" STREQUAL "mult")
+if ( USING_MULT_BACKEND )
     # -------------------begin v8 backend-------------------------
     if ( USING_V8)
         add_library(v8backend STATIC
@@ -203,7 +212,19 @@ if ( MSYS OR WIN32 )
 
     # definition
     list(APPEND PUERTS_COMPILE_DEFINITIONS PLATFORM_WINDOWS)
+elseif ( OHOS )
+    set(BACKEND_LIB_NAMES "-Wl,--whole-archive$<SEMICOLON>${BACKEND_LIB_NAMES}$<SEMICOLON>-Wl,--no-whole-archive")
+    if ( ANDROID_ABI STREQUAL "armeabi-v7a")
+        # definition
+        list(APPEND PUERTS_COMPILE_DEFINITIONS PLATFORM_ANDROID_ARM)
 
+    elseif ( ANDROID_ABI STREQUAL "arm64-v8a")
+        # definition
+        list(APPEND PUERTS_COMPILE_DEFINITIONS PLATFORM_ANDROID_ARM64)
+    else ()
+        # definition
+        list(APPEND PUERTS_COMPILE_DEFINITIONS PLATFORM_ANDROID_x64)
+    endif ()
 elseif ( ANDROID )
 
     find_library(log-lib log)
@@ -264,9 +285,11 @@ elseif (UNIX)
     
     # definition
     list(APPEND PUERTS_COMPILE_DEFINITIONS PLATFORM_LINUX)
-    set(CMAKE_CXX_COMPILER "clang++")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -stdlib=libc++ -lc++abi")
+    if (NOT ("${JS_ENGINE}" STREQUAL "nodejs_16"))
+        set(CMAKE_CXX_COMPILER "clang++")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
+        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -stdlib=libc++ -lc++abi")
+    endif ()
 endif ()
 
 # link
@@ -276,7 +299,7 @@ target_link_libraries(puerts
 list(APPEND PUERTS_COMPILE_DEFINITIONS ${BACKEND_DEFINITIONS})
 
 target_compile_definitions (puerts PUBLIC ${PUERTS_COMPILE_DEFINITIONS})
-if("${JS_ENGINE}" STREQUAL "mult")
+if( USING_MULT_BACKEND )
     if ( USING_V8)
         target_compile_definitions (v8backend PUBLIC ${PUERTS_COMPILE_DEFINITIONS})
         if ( WIN32 AND NOT CYGWIN AND NOT ( CMAKE_SYSTEM_NAME STREQUAL "WindowsStore" ) AND NOT ANDROID AND NOT MSYS)

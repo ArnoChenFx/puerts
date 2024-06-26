@@ -6,7 +6,7 @@
  * which is part of this source code package.
  */
 
-#if defined(UE_GAME) || defined(UE_EDITOR)
+#if defined(UE_GAME) || defined(UE_EDITOR) || defined(UE_SERVER) || defined(USING_IN_UNREAL_ENGINE)
 #define USING_UE 1
 #else
 #define USING_UE 0
@@ -266,7 +266,7 @@ void MicroTasksRunnerFunction(const v8::FunctionCallbackInfo<v8::Value>& Info)
 {
     // throw an error so the v8 will clean pending exception later
     Info.GetIsolate()->ThrowException(
-        v8::String::NewFromUtf8(Info.GetIsolate(), "test", v8::NewStringType::kNormal).ToLocalChecked());
+        v8::Exception::Error(v8::String::NewFromUtf8(Info.GetIsolate(), "test", v8::NewStringType::kNormal).ToLocalChecked()));
 }
 
 V8InspectorClientImpl::V8InspectorClientImpl(int32_t InPort, v8::Local<v8::Context> InContext)

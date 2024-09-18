@@ -3,14 +3,15 @@ import { Option, program } from "commander";
 import { join } from "path";
 import downloadBackend from "./backend.mjs";
 import { dotnetTest, unityTest } from "./test.mjs";
-import runPuertsMake, { makeOSXUniveralBinary, platformCompileConfig } from "./make.mjs";
+import runPuertsMake from "./make.mjs";
+import { makeOSXUniveralBinary, platformCompileConfig } from "./make.mjs";
 
 setWinCMDEncodingToUTF8();
 
 const nodePlatformToPuerPlatform = {
     "darwin": "osx",
     "win32": "win"
-}
+};
 const cwd = process.cwd();
 
 program
@@ -31,7 +32,10 @@ program
             .choices(["Release", "Debug"])
     )
     .option("--backend <backend>", "the JS backend will be used", "v8_9.4")
-    .option('-ws, --websocket', 'with websocket support')
+    .option('-ws, --websocket <number>', 'with websocket support')
+    .option('-G, --generator <generator-name>', 'cmake generator name')
+    .option('-ts, --thread_safe', 'thread safe')
+    .option('-wi, --with_inspector', 'with inspector')
     .action(function (quickcommand, options) {
         let backend = options.backend;
         let config = options.config;
@@ -98,15 +102,14 @@ program
 
         if (options.platform && options.arch == 'auto') {
             let promiseChain = Promise.resolve();
-            const outputs: string[][] = []
-            Object.keys((platformCompileConfig as any)[options.platform]).forEach(arch => {
+            const outputs = [];
+            Object.keys(platformCompileConfig[options.platform]).forEach(arch => {
                 promiseChain = promiseChain.then(function () {
-                    //@ts-ignore
                     options.arch = arch;
                     return runPuertsMake(cwd, options).then(res => {
                         outputs.push(res);
-                    })
-                })
+                    });
+                });
             });
             if (options.platform == 'osx') {
                 // if arch is not specified, make universal binary
@@ -114,37 +117,37 @@ program
             }
 
         } else if (!options.platform && options.arch == 'auto') {
-            options.platform = (nodePlatformToPuerPlatform as any)[process.platform]
-            //@ts-ignore
+            options.platform = nodePlatformToPuerPlatform[process.platform];
             options.arch = process.arch;
             runPuertsMake(cwd, options);
 
         } else {
             runPuertsMake(cwd, options);
         }
-    })
+    });
 
 const backendProgram = program
     .command("backend");
 
 backendProgram
     .command("download [backend] [url]").action((backend, url) => {
-        downloadBackend(cwd, backend, url)
+        downloadBackend(cwd, backend, url);
     });
 backendProgram
     .command("clean").action(() => {
-        rm('-rf', join(cwd, ".backends"))
+        rm('-rf', join(cwd, ".backends"));
     });
 
 program
     .command("dotnet-test [backend]")
     .option("--filter <filter>", "testcase will be filtered", "")
     .option('-sq, --switch_qjs', 'switch to quickjs backend')
-    .action((backend: string, options: any) => {
+    .option('-ts, --thread_safe', 'thread safe')
+    .action((backend, options) => {
         if (options.switch_qjs) {
             process.env.SwitchToQJS = '1';
         }
-        dotnetTest(cwd, backend || "quickjs", options.filter);
+        dotnetTest(cwd, backend || "quickjs", options.filter, options.thread_safe);
     });
 
 program
@@ -152,6 +155,6 @@ program
     .requiredOption("--unity <pathToUnity>")
     .action((options) => {
         unityTest(cwd, options.unity);
-    })
+    });
 
 program.parse(process.argv);

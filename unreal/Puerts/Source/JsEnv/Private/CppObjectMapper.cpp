@@ -50,6 +50,17 @@ void FCppObjectMapper::LoadCppType(const v8::FunctionCallbackInfo<v8::Value>& In
     }
 }
 
+v8::MaybeLocal<v8::Function> FCppObjectMapper::LoadTypeById(v8::Local<v8::Context> Context, const void* TypeId)
+{
+    auto ClassDef = puerts::LoadClassByID(TypeId);
+    if (!ClassDef)
+    {
+        return v8::MaybeLocal<v8::Function>();
+    }
+    auto Template = GetTemplateOfClass(Context->GetIsolate(), ClassDef);
+    return Template->GetFunction(Context);
+}
+
 static void PointerNew(const v8::FunctionCallbackInfo<v8::Value>& Info)
 {
     // do nothing
@@ -60,6 +71,9 @@ void FCppObjectMapper::Initialize(v8::Isolate* InIsolate, v8::Local<v8::Context>
     auto LocalTemplate = v8::FunctionTemplate::New(InIsolate, PointerNew);
     LocalTemplate->InstanceTemplate()->SetInternalFieldCount(4);    // 0 Ptr, 1, CDataName
     PointerConstructor = v8::UniquePersistent<v8::Function>(InIsolate, LocalTemplate->GetFunction(InContext).ToLocalChecked());
+#ifndef WITH_QUICKJS
+    PrivateKey.Reset(InIsolate, v8::Symbol::New(InIsolate));
+#endif
 }
 
 v8::Local<v8::Value> FCppObjectMapper::FindOrAddCppObject(
@@ -84,7 +98,7 @@ v8::Local<v8::Value> FCppObjectMapper::FindOrAddCppObject(
     }
 
     // create and link
-    auto ClassDefinition = FindClassByID(TypeId);
+    auto ClassDefinition = LoadClassByID(TypeId);
     if (ClassDefinition)
     {
         auto Result = GetTemplateOfClass(Isolate, ClassDefinition)->InstanceTemplate()->NewInstance(Context).ToLocalChecked();
@@ -254,7 +268,7 @@ v8::Local<v8::FunctionTemplate> FCppObjectMapper::GetTemplateOfClass(v8::Isolate
 
         if (ClassDefinition->SuperTypeId)
         {
-            if (auto SuperDefinition = FindClassByID(ClassDefinition->SuperTypeId))
+            if (auto SuperDefinition = LoadClassByID(ClassDefinition->SuperTypeId))
             {
                 Template->Inherit(GetTemplateOfClass(Isolate, SuperDefinition));
             }
@@ -275,7 +289,7 @@ static void CDataGarbageCollectedWithFree(const v8::WeakCallbackInfo<JSClassDefi
     JSClassDefinition* ClassDefinition = Data.GetParameter();
     void* Ptr = DataTransfer::MakeAddressWithHighPartOfTwo(Data.GetInternalField(0), Data.GetInternalField(1));
     if (ClassDefinition->Finalize)
-        ClassDefinition->Finalize(Ptr);
+        ClassDefinition->Finalize(Ptr, ClassDefinition->Data, DataTransfer::GetIsolatePrivateData(Data.GetIsolate()));
     DataTransfer::IsolateData<ICppObjectMapper>(Data.GetIsolate())->UnBindCppObject(ClassDefinition, Ptr);
 }
 
@@ -307,7 +321,7 @@ void FCppObjectMapper::BindCppObject(
 
     if (!PassByPointer)
     {
-        CDataFinalizeMap[Ptr] = ClassDefinition->Finalize;
+        CDataFinalizeMap[Ptr] = {ClassDefinition->Data, ClassDefinition->Finalize};
         CacheNodePtr->Value.SetWeak<JSClassDefinition>(
             ClassDefinition, CDataGarbageCollectedWithFree, v8::WeakCallbackType::kInternalFields);
     }
@@ -316,6 +330,40 @@ void FCppObjectMapper::BindCppObject(
         CacheNodePtr->Value.SetWeak<JSClassDefinition>(
             ClassDefinition, CDataGarbageCollectedWithoutFree, v8::WeakCallbackType::kInternalFields);
     }
+}
+
+#define QJS_PRIVATE_KEY_STR "__,kp@"
+
+void* FCppObjectMapper::GetPrivateData(v8::Local<v8::Context> Context, v8::Local<v8::Object> JSObject)
+{
+#ifndef WITH_QUICKJS
+    auto Key = PrivateKey.Get(Context->GetIsolate());
+#else
+    auto Key = FV8Utils::InternalString(Context->GetIsolate(), QJS_PRIVATE_KEY_STR);
+#endif
+    v8::MaybeLocal<v8::Value> maybeValue = JSObject->Get(Context, Key);
+    if (maybeValue.IsEmpty())
+    {
+        return nullptr;
+    }
+
+    v8::Local<v8::Value> maybeExternal = maybeValue.ToLocalChecked();
+    if (!maybeExternal->IsExternal())
+    {
+        return nullptr;
+    }
+
+    return v8::Local<v8::External>::Cast(maybeExternal)->Value();
+}
+
+void FCppObjectMapper::SetPrivateData(v8::Local<v8::Context> Context, v8::Local<v8::Object> JSObject, void* Ptr)
+{
+#ifndef WITH_QUICKJS
+    auto Key = PrivateKey.Get(Context->GetIsolate());
+#else
+    auto Key = FV8Utils::InternalString(Context->GetIsolate(), QJS_PRIVATE_KEY_STR);
+#endif
+    (void) (JSObject->Set(Context, Key, v8::External::New(Context->GetIsolate(), Ptr)));
 }
 
 void FCppObjectMapper::UnBindCppObject(JSClassDefinition* ClassDefinition, void* Ptr)
@@ -334,14 +382,18 @@ void FCppObjectMapper::UnBindCppObject(JSClassDefinition* ClassDefinition, void*
 
 void FCppObjectMapper::UnInitialize(v8::Isolate* InIsolate)
 {
+    auto PData = DataTransfer::GetIsolatePrivateData(InIsolate);
     for (auto Iter = CDataFinalizeMap.begin(); Iter != CDataFinalizeMap.end(); Iter++)
     {
-        if (Iter->second)
-            Iter->second(Iter->first);
+        if (Iter->second.Finalize)
+            Iter->second.Finalize(Iter->first, Iter->second.ClassData, PData);
     }
     CDataCache.clear();
     CDataFinalizeMap.clear();
     CDataNameToTemplateMap.clear();
+#ifndef WITH_QUICKJS
+    PrivateKey.Reset();
+#endif
     PointerConstructor.Reset();
 }
 

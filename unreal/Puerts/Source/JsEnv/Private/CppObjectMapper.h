@@ -42,6 +42,12 @@ public:
     virtual void BindCppObject(v8::Isolate* Isolate, JSClassDefinition* ClassDefinition, void* Ptr, v8::Local<v8::Object> JSObject,
         bool PassByPointer) override;
 
+    virtual void* GetPrivateData(v8::Local<v8::Context> Context, v8::Local<v8::Object> JSObject) override;
+
+    virtual void SetPrivateData(v8::Local<v8::Context> Context, v8::Local<v8::Object> JSObject, void* Ptr) override;
+
+    virtual v8::MaybeLocal<v8::Function> LoadTypeById(v8::Local<v8::Context> Context, const void* TypeId) override;
+
     void UnInitialize(v8::Isolate* InIsolate);
 
     v8::Local<v8::FunctionTemplate> GetTemplateOfClass(v8::Isolate* Isolate, const JSClassDefinition* ClassDefinition);
@@ -53,7 +59,16 @@ private:
 
     v8::UniquePersistent<v8::Function> PointerConstructor;
 
-    std::map<void*, FinalizeFunc> CDataFinalizeMap;
+#ifndef WITH_QUICKJS
+    v8::Global<v8::Symbol> PrivateKey;
+#endif
+
+    struct FinalizeInfo
+    {
+        void* ClassData;
+        FinalizeFunc Finalize;
+    };
+    std::map<void*, FinalizeInfo> CDataFinalizeMap;
 
     std::shared_ptr<int> Ref = std::make_shared<int>(0);
 };

@@ -2949,6 +2949,21 @@ void FJsEnvImpl::BindCppObject(
     CppObjectMapper.BindCppObject(InIsolate, ClassDefinition, Ptr, JSObject, PassByPointer);
 }
 
+void* FJsEnvImpl::GetPrivateData(v8::Local<v8::Context> Context, v8::Local<v8::Object> JSObject)
+{
+    return CppObjectMapper.GetPrivateData(Context, JSObject);
+}
+
+void FJsEnvImpl::SetPrivateData(v8::Local<v8::Context> Context, v8::Local<v8::Object> JSObject, void* Ptr)
+{
+    CppObjectMapper.SetPrivateData(Context, JSObject, Ptr);
+}
+
+v8::MaybeLocal<v8::Function> FJsEnvImpl::LoadTypeById(v8::Local<v8::Context> Context, const void* TypeId)
+{
+    return CppObjectMapper.LoadTypeById(Context, TypeId);
+}
+
 void FJsEnvImpl::UnBindStruct(FScriptStructWrapper* ScriptStructWrapper, void* Ptr)
 {
     auto CacheNodePtr = StructCache.Find(Ptr);

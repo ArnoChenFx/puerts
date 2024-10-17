@@ -113,14 +113,14 @@ static Il2CppClass *g_typeofPersistentObjectInfo;
 static Il2CppClass *g_typeofArrayBuffer;
 static Il2CppClass *g_typeofTypedValue;
 
-const Il2CppClass* GetReturnType(const MethodInfo* method) {
+Il2CppClass* GetReturnType(const MethodInfo* method) {
     if (kInvalidIl2CppMethodSlot != method->slot) {
         Class::Init(method->klass);
     }
     return Class::FromIl2CppType(Method::GetReturnType(method), false);
 }
 
-const Il2CppClass* GetParameterType(const MethodInfo* method, int index) {
+Il2CppClass* GetParameterType(const MethodInfo* method, int index) {
     if (kInvalidIl2CppMethodSlot != method->slot) {
         Class::Init(method->klass);
     }
@@ -229,7 +229,8 @@ void SetGlobalType_TypedValue(Il2CppReflectionType *type)
     g_typeofTypedValue = il2cpp_codegen_class_from_type(type->type);
 }
 
-static void MethodCallback(pesapi_callback_info info) {
+static void MethodCallback(pesapi_callback_info info)
+{
     try 
     {
         WrapData** wrapDatas = (WrapData**)pesapi_get_userdata(info);

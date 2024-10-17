@@ -50,6 +50,11 @@
                     "x64": [
                         "/Lib/Linux/libquickjs.a"
                     ]
+                },
+                "ns":{
+                    "arm64": [
+                        "/Lib/ns/arm64-v8a/libquickjs.a"
+                    ]
                 }
             },
             "copy-libraries": {
@@ -210,7 +215,7 @@
         }
     },
     "v8_9.4.146.24": {
-        "url": "https://github.com/puerts/backend-v8/releases/download/V8_9.4.146.24__240827/v8_bin_9.4.146.24.tgz",
+        "url": "https://github.com/puerts/backend-v8/releases/download/V8_9.4.146.24__241009/v8_bin_9.4.146.24.tgz",
         "config": {
             "definition": [
                 "V8_94_OR_NEWER"
@@ -273,7 +278,7 @@
         }
     },
     "v8_10.6.194": {
-        "url": "https://github.com/puerts/backend-v8/releases/download/V8_10.6.194__240826/v8_bin_10.6.194.tgz",
+        "url": "https://github.com/puerts/backend-v8/releases/download/V8_10.6.194__241009/v8_bin_10.6.194.tgz",
         "config": {
             "definition": [
                 "V8_94_OR_NEWER"
@@ -336,7 +341,7 @@
         }
     },
     "v8_11.8.172": {
-        "url": "https://github.com/puerts/backend-v8/releases/download/V8_11.8.172_240711/v8_bin_11.8.172.tgz",
+        "url": "https://github.com/puerts/backend-v8/releases/download/V8_11.8.172__241009/v8_bin_11.8.172.tgz",
         "config": {
             "definition": [
                 "V8_94_OR_NEWER"
@@ -448,7 +453,7 @@
         }
     },
     "mult": {
-        "url": "https://github.com/puerts/backend-mult/releases/download/MULT_240604/mult_backends.tgz",
+        "url": "https://github.com/puerts/backend-mult/releases/download/MULT_241009/mult_backends.tgz",
         "config": {
             "definition": [
                 "V8_94_OR_NEWER"

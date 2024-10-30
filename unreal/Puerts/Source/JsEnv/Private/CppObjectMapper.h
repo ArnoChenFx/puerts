@@ -16,13 +16,28 @@ PRAGMA_DISABLE_UNDEFINED_IDENTIFIER_WARNINGS
 #pragma warning(pop)
 PRAGMA_ENABLE_UNDEFINED_IDENTIFIER_WARNINGS
 
-#include <map>
+#include <unordered_map>
 #include "JSClassRegister.h"
 #include "ObjectCacheNode.h"
 #include "ObjectMapper.h"
 
 namespace PUERTS_NAMESPACE
 {
+struct PointerHash
+{
+    std::size_t operator()(const void* ptr) const
+    {
+        return reinterpret_cast<std::size_t>(ptr);
+    }
+};
+
+struct PointerEqual
+{
+    bool operator()(const void* lhs, const void* rhs) const
+    {
+        return lhs == rhs;
+    }
+};
 class FCppObjectMapper final : public ICppObjectMapper
 {
 public:
@@ -37,7 +52,7 @@ public:
     virtual v8::Local<v8::Value> FindOrAddCppObject(
         v8::Isolate* Isolate, v8::Local<v8::Context>& Context, const void* TypeId, void* Ptr, bool PassByPointer) override;
 
-    virtual void UnBindCppObject(JSClassDefinition* ClassDefinition, void* Ptr) override;
+    virtual void UnBindCppObject(v8::Isolate* Isolate, JSClassDefinition* ClassDefinition, void* Ptr) override;
 
     virtual void BindCppObject(v8::Isolate* Isolate, JSClassDefinition* ClassDefinition, void* Ptr, v8::Local<v8::Object> JSObject,
         bool PassByPointer) override;
@@ -53,22 +68,15 @@ public:
     v8::Local<v8::FunctionTemplate> GetTemplateOfClass(v8::Isolate* Isolate, const JSClassDefinition* ClassDefinition);
 
 private:
-    std::map<void*, FObjectCacheNode> CDataCache;
+    std::unordered_map<void*, FObjectCacheNode, PointerHash, PointerEqual> CDataCache;
 
-    std::map<const void*, v8::UniquePersistent<v8::FunctionTemplate>> CDataNameToTemplateMap;
+    std::unordered_map<const void*, v8::UniquePersistent<v8::FunctionTemplate>, PointerHash, PointerEqual> TypeIdToTemplateMap;
 
-    v8::UniquePersistent<v8::Function> PointerConstructor;
+    v8::UniquePersistent<v8::FunctionTemplate> PointerTemplate;
 
 #ifndef WITH_QUICKJS
     v8::Global<v8::Symbol> PrivateKey;
 #endif
-
-    struct FinalizeInfo
-    {
-        void* ClassData;
-        FinalizeFunc Finalize;
-    };
-    std::map<void*, FinalizeInfo> CDataFinalizeMap;
 
     std::shared_ptr<int> Ref = std::make_shared<int>(0);
 };

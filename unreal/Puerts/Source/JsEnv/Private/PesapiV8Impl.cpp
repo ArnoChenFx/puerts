@@ -18,14 +18,6 @@
 #include <vector>
 #include <cstring>
 
-#ifndef MSVC_PRAGMA
-#if !defined(__clang__) && defined(_MSC_VER)
-#define MSVC_PRAGMA(Pragma) __pragma(Pragma)
-#else
-#define MSVC_PRAGMA(...)
-#endif
-#endif
-
 struct pesapi_env_ref__
 {
     explicit pesapi_env_ref__(v8::Local<v8::Context> context)
@@ -468,18 +460,7 @@ pesapi_value pesapi_get_holder(pesapi_callback_info pinfo)
 void* pesapi_get_userdata(pesapi_callback_info pinfo)
 {
     auto info = reinterpret_cast<const v8::FunctionCallbackInfo<v8::Value>*>(pinfo);
-    if ((*info).IsConstructCall())
-        return nullptr;
-    return v8::Local<v8::External>::Cast((*info).Data())->Value();
-}
-
-void* pesapi_get_class_data_in_constructor(pesapi_callback_info pinfo)
-{
-    auto info = reinterpret_cast<const v8::FunctionCallbackInfo<v8::Value>*>(pinfo);
-    if (!(*info).IsConstructCall())
-        return nullptr;
-    auto ClassDefinition = reinterpret_cast<puerts::JSClassDefinition*>((v8::Local<v8::External>::Cast((*info).Data()))->Value());
-    return ClassDefinition->Data;
+    return *(static_cast<void**>(v8::Local<v8::External>::Cast((*info).Data())->Value()));
 }
 
 void pesapi_add_return(pesapi_callback_info pinfo, pesapi_value value)
@@ -964,8 +945,6 @@ static void free_property_descriptor(pesapi_property_descriptor properties, size
 // set module name here during loading, set nullptr after module loaded
 const char* GPesapiModuleName = nullptr;
 
-MSVC_PRAGMA(warning(push))
-MSVC_PRAGMA(warning(disable : 4191))
 void pesapi_define_class(const void* type_id, const void* super_type_id, const char* type_name, pesapi_constructor constructor,
     pesapi_finalize finalize, size_t property_count, pesapi_property_descriptor properties, void* data)
 {
@@ -985,7 +964,7 @@ void pesapi_define_class(const void* type_id, const void* super_type_id, const c
     }
     classDef.Data = data;
 
-    classDef.Initialize = reinterpret_cast<puerts::InitializeFunc>(constructor);
+    classDef.Initialize = constructor;
     classDef.Finalize = finalize;
 
     std::vector<puerts::JSFunctionInfo> p_methods;
@@ -1000,18 +979,16 @@ void pesapi_define_class(const void* type_id, const void* super_type_id, const c
         {
             if (p->is_static)
             {
-                p_variables.push_back({p->name, reinterpret_cast<v8::FunctionCallback>(p->getter),
-                    reinterpret_cast<v8::FunctionCallback>(p->setter), p->data0, p->data1});
+                p_variables.push_back({p->name, p->getter, p->setter, p->data0, p->data1});
             }
             else
             {
-                p_properties.push_back({p->name, reinterpret_cast<v8::FunctionCallback>(p->getter),
-                    reinterpret_cast<v8::FunctionCallback>(p->setter), p->data0, p->data1});
+                p_properties.push_back({p->name, p->getter, p->setter, p->data0, p->data1});
             }
         }
         else if (p->method != nullptr)
         {
-            puerts::JSFunctionInfo finfo{p->name, reinterpret_cast<v8::FunctionCallback>(p->method), p->data0};
+            puerts::JSFunctionInfo finfo{p->name, p->method, p->data0};
             if (p->is_static)
             {
                 p_functions.push_back(finfo);
@@ -1025,10 +1002,10 @@ void pesapi_define_class(const void* type_id, const void* super_type_id, const c
 
     free_property_descriptor(properties, property_count);
 
-    p_methods.push_back({nullptr, nullptr, nullptr});
-    p_functions.push_back({nullptr, nullptr, nullptr});
-    p_properties.push_back({nullptr, nullptr, nullptr, nullptr});
-    p_variables.push_back({nullptr, nullptr, nullptr, nullptr});
+    p_methods.push_back(puerts::JSFunctionInfo());
+    p_functions.push_back(puerts::JSFunctionInfo());
+    p_properties.push_back(puerts::JSPropertyInfo());
+    p_variables.push_back(puerts::JSPropertyInfo());
 
     classDef.Methods = p_methods.data();
     classDef.Functions = p_functions.data();
@@ -1037,12 +1014,17 @@ void pesapi_define_class(const void* type_id, const void* super_type_id, const c
 
     puerts::RegisterJSClass(classDef);
 }
-MSVC_PRAGMA(warning(pop))
 
 void* pesapi_get_class_data(const void* type_id, bool force_load)
 {
     auto clsDef = force_load ? puerts::LoadClassByID(type_id) : puerts::FindClassByID(type_id);
     return clsDef ? clsDef->Data : nullptr;
+}
+
+bool pesapi_trace_native_object_lifecycle(
+    const void* type_id, pesapi_on_native_object_enter on_enter, pesapi_on_native_object_exit on_exit)
+{
+    return puerts::TraceObjectLifecycle(type_id, on_enter, on_exit);
 }
 
 void pesapi_on_class_not_found(pesapi_class_not_found_callback callback)

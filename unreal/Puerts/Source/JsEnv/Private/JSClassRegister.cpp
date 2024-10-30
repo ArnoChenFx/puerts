@@ -77,13 +77,17 @@ public:
 
     const JSClassDefinition* FindClassByID(const void* TypeId);
 
-    void OnClassNotFound(ClassNotFoundCallback InCallback)
+    void OnClassNotFound(pesapi_class_not_found_callback InCallback)
     {
         ClassNotFoundCallback = InCallback;
     }
 
     const JSClassDefinition* LoadClassByID(const void* TypeId)
     {
+        if (!TypeId)
+        {
+            return nullptr;
+        }
         auto clsDef = FindClassByID(TypeId);
         if (!clsDef && ClassNotFoundCallback)
         {
@@ -109,7 +113,7 @@ public:
 private:
     std::map<const void*, JSClassDefinition*> CDataIdToClassDefinition;
     std::map<std::string, JSClassDefinition*> CDataNameToClassDefinition;
-    ClassNotFoundCallback ClassNotFoundCallback = nullptr;
+    pesapi_class_not_found_callback ClassNotFoundCallback = nullptr;
 #if USING_IN_UNREAL_ENGINE
     std::map<std::string, AddonRegisterFunc> AddonRegisterInfos;
     std::map<FString, JSClassDefinition*> StructNameToClassDefinition;
@@ -213,6 +217,10 @@ void JSClassRegister::SetClassTypeInfo(const void* TypeId, const NamedFunctionIn
 
 const JSClassDefinition* JSClassRegister::FindClassByID(const void* TypeId)
 {
+    if (!TypeId)
+    {
+        return nullptr;
+    }
     auto Iter = CDataIdToClassDefinition.find(TypeId);
     if (Iter == CDataIdToClassDefinition.end())
     {
@@ -311,7 +319,7 @@ const JSClassDefinition* FindClassByID(const void* TypeId)
     return GetJSClassRegister()->FindClassByID(TypeId);
 }
 
-void OnClassNotFound(ClassNotFoundCallback Callback)
+void OnClassNotFound(pesapi_class_not_found_callback Callback)
 {
     GetJSClassRegister()->OnClassNotFound(Callback);
 }
@@ -324,6 +332,17 @@ const JSClassDefinition* LoadClassByID(const void* TypeId)
 const JSClassDefinition* FindCppTypeClassByName(const std::string& Name)
 {
     return GetJSClassRegister()->FindCppTypeClassByName(Name);
+}
+
+bool TraceObjectLifecycle(const void* TypeId, pesapi_on_native_object_enter OnEnter, pesapi_on_native_object_exit OnExit)
+{
+    if (auto clsDef = const_cast<JSClassDefinition*>(GetJSClassRegister()->FindClassByID(TypeId)))
+    {
+        clsDef->OnEnter = OnEnter;
+        clsDef->OnExit = OnExit;
+        return true;
+    }
+    return false;
 }
 
 #if USING_IN_UNREAL_ENGINE

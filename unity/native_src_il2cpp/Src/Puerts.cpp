@@ -127,6 +127,7 @@ struct JSEnv
 
 }
 
+extern pesapi_func_ptr reg_apis[];
 
 #ifdef __cplusplus
 extern "C" {
@@ -170,7 +171,7 @@ V8_EXPORT pesapi_env_ref GetPapiEnvRef(puerts::JSEnv* jsEnv)
     v8::Context::Scope ContextScope(Context);
     
     auto env = reinterpret_cast<pesapi_env>(*Context); //TODO: 实现相关
-    return pesapi_create_env_ref(env);
+    return v8impl::g_pesapi_ffi.create_env_ref(env);
 }
 
 /*V8_EXPORT void SetObjectPool(puerts::JSEnv* jsEnv, void* ObjectPoolAddMethodInfo, puerts::ObjectPoolAddFunc ObjectPoolAdd, void* ObjectPoolRemoveMethodInfo, puerts::ObjectPoolRemoveFunc ObjectPoolRemove, void* ObjectPoolInstance)
@@ -200,6 +201,16 @@ V8_EXPORT int InspectorTick(puerts::JSEnv* jsEnv)
 V8_EXPORT void LogicTick(puerts::JSEnv* jsEnv)
 {
     jsEnv->BackendEnv.LogicTick();
+}
+
+V8_EXPORT pesapi_ffi* GetFFIApi()
+{
+    return &v8impl::g_pesapi_ffi;
+}
+
+V8_EXPORT pesapi_func_ptr* GetRegsterApi()
+{
+    return reg_apis;
 }
 
 #ifdef __cplusplus

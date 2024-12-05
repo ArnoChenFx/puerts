@@ -2915,7 +2915,8 @@ void FJsEnvImpl::BindStruct(
         auto CacheNodePtr = StructCache.Find(Ptr);
         if (CacheNodePtr)
         {
-            CacheNodePtr = CacheNodePtr->Add(ScriptStructWrapper->Struct.Get());
+            auto Temp = CacheNodePtr->Find(ScriptStructWrapper->Struct.Get());
+            CacheNodePtr = Temp ? Temp : CacheNodePtr->Add(ScriptStructWrapper->Struct.Get());
         }
         else
         {

@@ -1506,7 +1506,7 @@ void FJsEnvImpl::ReloadModule(FName ModuleName, const FString& JsSource)
     JsHotReload(ModuleName, JsSource);
 }
 
-void FJsEnvImpl::ReloadSource(const FString& Path, const std::string& JsSource)
+void FJsEnvImpl::ReloadSource(const FString& Path, const PString& JsSource)
 {
 #ifdef SINGLE_THREAD_VERIFY
     ensureMsgf(BoundThreadId == FPlatformTLS::GetCurrentThreadId(), TEXT("Access by illegal thread!"));
@@ -1704,7 +1704,7 @@ FString FJsEnvImpl::CurrentStackTrace()
     v8::Isolate::Scope IsolateScope(Isolate);
     v8::HandleScope HandleScope(Isolate);
 
-    std::string StackTrace = StackTraceToString(Isolate, v8::StackTrace::CurrentStackTrace(Isolate, 10, v8::StackTrace::kDetailed));
+    PString StackTrace = StackTraceToString(Isolate, v8::StackTrace::CurrentStackTrace(Isolate, 10, v8::StackTrace::kDetailed));
     return UTF8_TO_TCHAR(StackTrace.c_str());
 #else
     return TEXT("");
@@ -4462,7 +4462,7 @@ void FJsEnvImpl::FindModule(const v8::FunctionCallbackInfo<v8::Value>& Info)
 
     CHECK_V8_ARGS(EArgString);
 
-    std::string Name = *(v8::String::Utf8Value(Isolate, Info[0]));
+    PString Name = *(v8::String::Utf8Value(Isolate, Info[0]));
 
     auto Func = FindAddonRegisterFunc(Name);
 

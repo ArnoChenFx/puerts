@@ -55,7 +55,7 @@ PUERTS_EXPORT int GetApiLevel()
 
 PUERTS_EXPORT int GetLibBackend(puerts::IPuertsPlugin* plugin)
 {
-    return 0;
+    return plugin->GetType();
 }
 
 PUERTS_EXPORT puerts::IPuertsPlugin* CreateJSEngine(int backend)
@@ -354,6 +354,11 @@ PUERTS_EXPORT void ReturnFunction(puerts::IPuertsPlugin* plugin, const void* Inf
 PUERTS_EXPORT void ReturnCSharpFunctionCallback(puerts::IPuertsPlugin* plugin, const void* Info, puerts::FuncPtr Callback, int64_t Data)
 {
     plugin->ReturnCSharpFunctionCallback(Info, Callback, Data);
+}
+
+PUERTS_EXPORT void ReturnCSharpFunctionCallback2(puerts::IPuertsPlugin* plugin, const void* Info, puerts::FuncPtr Callback, puerts::FuncPtr Finalize, int64_t Data)
+{
+    plugin->ReturnCSharpFunctionCallback(Info, Callback, Finalize, Data);
 }
 
 PUERTS_EXPORT void ReturnJSObject(puerts::IPuertsPlugin* plugin, const void* Info, void* Object)

@@ -23,18 +23,14 @@ namespace Puerts
     public class JsEnv : IDisposable
     {
         private static List<JsEnv> jsEnvs = new List<JsEnv>();
+        private static bool isInitialized = false;
+        private static Type persistentObjectInfoType;
+        private static MethodInfo extensionMethodGetMethodInfo;
         private readonly int Idx;
         IntPtr apis;
         IntPtr nativeJsEnv;
         IntPtr nativePesapiEnv;
         IntPtr nativeScriptObjectsRefsMgr;
-
-        // TypeRegister TypeRegister;
-
-        Type persistentObjectInfoType;
-        MethodInfo objectPoolAddMethodInfo;
-        MethodInfo objectPoolRemoveMethodInfo;
-        MethodInfo tryLoadTypeMethodInfo;
 
         private Func<string, JSObject> moduleExecutor;
 
@@ -61,19 +57,31 @@ namespace Puerts
         public JsEnv(ILoader loader, int debugPort = -1)
         {
             this.loader = loader;
+            
+            if (!isInitialized)
+            {
+                lock (jsEnvs)
+                {
+                    if (!isInitialized)
+                    {
+                        //only once is enough
+                        Puerts.NativeAPI.SetLogCallback(LogCallback, LogWarningCallback, LogErrorCallback);
+                        Puerts.NativeAPI.InitialPuerts(Puerts.NativeAPI.GetRegsterApi());
+                        extensionMethodGetMethodInfo = typeof(PuertsIl2cpp.ExtensionMethodInfo).GetMethod("Get");
+                        Puerts.NativeAPI.SetExtensionMethodGet(extensionMethodGetMethodInfo);
 
-            //only once is enough
-            Puerts.NativeAPI.SetLogCallback(LogCallback, LogWarningCallback, LogErrorCallback);
-            Puerts.NativeAPI.InitialPuerts(Puerts.NativeAPI.GetRegsterApi());
+                        persistentObjectInfoType = typeof(Puerts.JSObject);
+                        Puerts.NativeAPI.SetGlobalType_TypedValue(typeof(TypedValue));
+                        Puerts.NativeAPI.SetGlobalType_ArrayBuffer(typeof(ArrayBuffer));
+                        Puerts.NativeAPI.SetGlobalType_JSObject(typeof(JSObject));
+
+                        PuertsIl2cpp.ExtensionMethodInfo.LoadExtensionMethodInfo();
+                        isInitialized = true;
+                    }
+                }
+            }
+
             apis = Puerts.NativeAPI.GetFFIApi();
-            tryLoadTypeMethodInfo = typeof(TypeRegister).GetMethod("RegisterNoThrow");
-            Puerts.NativeAPI.SetRegisterNoThrow(tryLoadTypeMethodInfo);
-
-            persistentObjectInfoType = typeof(Puerts.JSObject);
-            Puerts.NativeAPI.SetGlobalType_TypedValue(typeof(TypedValue));
-            Puerts.NativeAPI.SetGlobalType_ArrayBuffer(typeof(ArrayBuffer));
-            Puerts.NativeAPI.SetGlobalType_JSObject(typeof(JSObject));
-
             nativeJsEnv = Puerts.PuertsDLL.CreateJSEngine(0);
             nativePesapiEnv = Puerts.NativeAPI.GetPapiEnvRef(nativeJsEnv);
             nativeScriptObjectsRefsMgr = Puerts.NativeAPI.InitialPapiEnvRef(apis, nativePesapiEnv);
@@ -105,8 +113,6 @@ namespace Puerts
                 Backend = new BackendNodeJS(this);
             else if (Puerts.PuertsDLL.GetLibBackend(nativeJsEnv) == 2)
                 Backend = new BackendQuickJS(this);
-
-            PuertsIl2cpp.ExtensionMethodInfo.LoadExtensionMethodInfo();
 
             if (debugPort != -1) {
                 Puerts.PuertsDLL.CreateInspector(nativeJsEnv, debugPort);    

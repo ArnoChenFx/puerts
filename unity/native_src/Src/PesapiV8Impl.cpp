@@ -7,15 +7,16 @@
  */
  
 #include "pesapi.h"
+#include "TypeInfo.hpp"
+#include "PString.h"
 #include "JSClassRegister.h"
 
 #include <string>
 #include <sstream>
 #include <vector>
 #include <cstring>
-#include "PString.h"
 
-#ifndef WITH_QUICKJS
+#ifdef WITH_V8
 
 #include "DataTransfer.h"
 #include "ObjectMapper.h"

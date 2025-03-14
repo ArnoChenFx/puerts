@@ -56,7 +56,7 @@ namespace Puerts
 
         public JsEnv(): this(new DefaultLoader(), -1) {}
 
-        public JsEnv(ILoader loader, int debugPort = -1)
+        public JsEnv(ILoader loader, int debugPort = -1, BackendType backend = BackendType.Auto, IntPtr externalRuntime = default(IntPtr), IntPtr externalContext = default(IntPtr))
         {
             this.loader = loader;
             
@@ -83,9 +83,28 @@ namespace Puerts
                 }
             }
 
-            apis = Puerts.NativeAPI.GetFFIApi();
-            nativeJsEnv = Puerts.PuertsDLL.CreateJSEngine(0);
-            nativePesapiEnv = Puerts.NativeAPI.GetPapiEnvRef(nativeJsEnv);
+            disposed = true;
+            nativeJsEnv = Puerts.PuertsDLL.CreateJSEngine((int)backend);
+            if (nativeJsEnv == IntPtr.Zero)
+            {
+                throw new InvalidProgramException("create jsengine fail for " + backend);
+            }
+            int libBackend = Puerts.PuertsDLL.GetLibBackend(nativeJsEnv);
+            if (libBackend == 2)
+            {
+                apis = Puerts.NativeAPI.GetQjsFFIApi();
+                nativePesapiEnv = Puerts.NativeAPI.GetQjsPapiEnvRef(nativeJsEnv);
+            }
+            else
+            {
+                apis = Puerts.NativeAPI.GetV8FFIApi();
+                nativePesapiEnv = Puerts.NativeAPI.GetV8PapiEnvRef(nativeJsEnv);
+            }
+            if (nativePesapiEnv == IntPtr.Zero)
+            {
+                throw new InvalidProgramException("create jsengine fail for " + backend);
+            }
+            disposed = false;
             var objectPoolType = typeof(PuertsIl2cpp.ObjectPool);
             nativeScriptObjectsRefsMgr = Puerts.NativeAPI.InitialPapiEnvRef(apis, nativePesapiEnv, objectPool, objectPoolType.GetMethod("Add"), objectPoolType.GetMethod("Remove"));
 
@@ -110,11 +129,11 @@ namespace Puerts
             }
 #endif
 
-            if (Puerts.PuertsDLL.GetLibBackend(nativeJsEnv) == 0) 
+            if (libBackend == 0) 
                 Backend = new BackendV8(this);
-            else if (Puerts.PuertsDLL.GetLibBackend(nativeJsEnv) == 1)
+            else if (libBackend == 1)
                 Backend = new BackendNodeJS(this);
-            else if (Puerts.PuertsDLL.GetLibBackend(nativeJsEnv) == 2)
+            else if (libBackend == 2)
                 Backend = new BackendQuickJS(this);
 
             if (debugPort != -1) {
@@ -330,6 +349,13 @@ namespace Puerts
             lock (this)
             {
                 if (disposed) return;
+                
+                // void JS_FreeRuntime(JSRuntime *): assertion "list_empty(&rt->gc_obj_list)" failed in android
+                TickHandler = null;
+                moduleExecutor = null;
+                System.GC.Collect();
+                System.GC.WaitForPendingFinalizers();
+                
                 Puerts.NativeAPI.CleanupPapiEnvRef(apis, nativePesapiEnv);
                 Puerts.PuertsDLL.DestroyJSEngine(nativeJsEnv);
                 Puerts.NativeAPI.DestroyJSEnvPrivate(nativeScriptObjectsRefsMgr);

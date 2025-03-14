@@ -25,7 +25,8 @@
 #include "pesapi.h"
 #ifdef WITH_QUICKJS
 #include "CppObjectMapperQuickjs.h"
-#else
+#endif
+#ifdef WITH_V8
 #include "CppObjectMapper.h"
 #include "DataTransfer.h"
 #endif
@@ -95,6 +96,7 @@ enum JSEngineBackend
     V8          = 0,
     Node        = 1,
     QuickJS     = 2,
+    Auto = 3
 };
 
 class JSEngine
@@ -214,8 +216,9 @@ private:
 #ifdef WITH_IL2CPP_OPTIMIZATION
 #ifdef WITH_QUICKJS
     pesapi::qjsimpl::CppObjectMapper CppObjectMapperQjs;
-#else
-    FCppObjectMapper CppObjectMapper;
+#endif
+#ifdef WITH_V8
+    FCppObjectMapper CppObjectMapperV8;
 #endif
 #endif
     

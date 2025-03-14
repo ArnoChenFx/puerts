@@ -11,6 +11,10 @@ project(PuertsPlugin LANGUAGES C CXX)
 
 include(CheckCCompilerFlag)
 
+option ( USING_V8 "using v8" ON )
+option ( USING_QJS "using quickjs" ON )
+option ( USING_QJS_SUFFIX "add _qjs to namespace of simule v8 api " ON )
+
 if("${JS_ENGINE}" MATCHES "^v8_10.6.194")
     set(CMAKE_CXX_STANDARD 17)
 else ()
@@ -115,8 +119,11 @@ endif()
 
 set(PUERTS_COMPILE_DEFINITIONS)
 set(PUERTS_BACKEND_SRC)
+set(BEACKEND_QUICKJS_INC)
+set(BEACKEND_QUICKJS_SRC)
 
-if("${JS_ENGINE}" STREQUAL "quickjs")
+
+if(USING_QUICKJS OR USING_MULT_BACKEND)
     set(CMAKE_C_STANDARD_REQUIRED ON)
     set(CMAKE_C_EXTENSIONS ON)
     set(CMAKE_C_STANDARD 11)
@@ -204,11 +211,11 @@ if("${JS_ENGINE}" STREQUAL "quickjs")
         list(APPEND PUERTS_COMPILE_DEFINITIONS WIN32_LEAN_AND_MEAN _WIN32_WINNT=0x0602)
     endif()
 
-    include_directories(${PROJECT_SOURCE_DIR}/backend-quickjs/include
+    list(APPEND BEACKEND_QUICKJS_INC ${PROJECT_SOURCE_DIR}/backend-quickjs/include
                         ${PROJECT_SOURCE_DIR}/backend-quickjs/quickjs
     )
     
-    list(APPEND PUERTS_SRC
+    list(APPEND BEACKEND_QUICKJS_SRC
                         ${PROJECT_SOURCE_DIR}/backend-quickjs/src/v8-impl.cc
                         ${PROJECT_SOURCE_DIR}/backend-quickjs/quickjs/cutils.c
                         ${PROJECT_SOURCE_DIR}/backend-quickjs/quickjs/libbf.c
@@ -216,29 +223,50 @@ if("${JS_ENGINE}" STREQUAL "quickjs")
                         ${PROJECT_SOURCE_DIR}/backend-quickjs/quickjs/libunicode.c
                         ${PROJECT_SOURCE_DIR}/backend-quickjs/quickjs/quickjs.c
     )
-    
-    if (NOT USING_MULT_BACKEND AND NOT WITHOUT_IL2CPP_OPTIMIZATION)
-        list(APPEND PUERTS_COMPILE_DEFINITIONS WITH_IL2CPP_OPTIMIZATION)
-        include_directories(${PROJECT_SOURCE_DIR}/papi-quickjs/include)
-        list(APPEND PUERTS_SRC
-           papi-quickjs/source/CppObjectMapperQuickjs.cpp
-           Src/JSClassRegister.cpp
-           Src/PesapiAddonLoad.cpp
-           Src/PesapiV8Impl.cpp # for reg_apis
-           papi-quickjs/source/PapiQuickjsImpl.cpp
-        )
-    endif()
 endif()
 
-if (NOT USING_MULT_BACKEND AND NOT USING_QUICKJS AND NOT WITHOUT_IL2CPP_OPTIMIZATION)
-    list(APPEND PUERTS_COMPILE_DEFINITIONS WITH_IL2CPP_OPTIMIZATION)
+if (NOT WITHOUT_IL2CPP_OPTIMIZATION)
+    if (USING_MULT_BACKEND)
+        #if (USING_V8) #放这里会受到CUSTOMV8NAMESPACE=v8_qjs的影响
+        #    list(APPEND PUERTS_SRC
+        #       Src/CppObjectMapper.cpp
+        #       Src/DataTransfer.cpp
+        #       Src/PesapiAddonLoad.cpp
+        #       Src/PesapiV8Impl.cpp
+        #    )
+        #endif()
+    else ()
+        if (NOT USING_QUICKJS)
+            list(APPEND PUERTS_SRC
+               Src/CppObjectMapper.cpp
+               Src/DataTransfer.cpp
+               Src/PesapiAddonLoad.cpp
+               Src/PesapiV8Impl.cpp
+            )
+        endif()
+        
+        if (USING_QUICKJS)
+            list(APPEND BEACKEND_QUICKJS_INC ${PROJECT_SOURCE_DIR}/papi-quickjs/include)
+            list(APPEND PUERTS_SRC
+               papi-quickjs/source/CppObjectMapperQuickjs.cpp
+               papi-quickjs/source/PapiQuickjsImpl.cpp
+               Src/PesapiV8Impl.cpp
+            )
+        endif()
+   endif()
+endif()
+
+if (NOT WITHOUT_IL2CPP_OPTIMIZATION)
     list(APPEND PUERTS_SRC
-       Src/CppObjectMapper.cpp
-       Src/DataTransfer.cpp
        Src/JSClassRegister.cpp
-       Src/PesapiAddonLoad.cpp
-       Src/PesapiV8Impl.cpp
     )
+    list(APPEND BEACKEND_QUICKJS_INC ${PROJECT_SOURCE_DIR}/papi-quickjs/include)
+endif()
+
+if(USING_QUICKJS)
+    list(APPEND PUERTS_COMPILE_DEFINITIONS WITH_QUICKJS)
+elseif (NOT USING_MULT_BACKEND)
+    list(APPEND PUERTS_COMPILE_DEFINITIONS WITH_V8)
 endif()
 
 if ( WITH_WEBSOCKET )
@@ -262,7 +290,7 @@ if ( APPLE )
     if ( IOS )
         set(CMAKE_OSX_ARCHITECTURES "$(ARCHS_STANDARD)")
         add_library(puerts STATIC
-           ${PUERTS_SRC} ${PUERTS_INC}
+           ${PUERTS_SRC} ${PUERTS_INC} ${BEACKEND_QUICKJS_SRC}
         )
 		set_xcode_property (puerts IPHONEOS_DEPLOYMENT_TARGET "7.0" "all")
     else ()
@@ -273,7 +301,7 @@ if ( APPLE )
         endif ()
         
         add_library(puerts SHARED
-            ${PUERTS_SRC} ${PUERTS_INC}
+            ${PUERTS_SRC} ${PUERTS_INC} ${BEACKEND_QUICKJS_SRC}
         )
         target_link_options(
             puerts 
@@ -283,19 +311,21 @@ if ( APPLE )
     endif ()
 elseif ( SWITCH_PLATFORM )
     add_library(puerts STATIC
-        ${PUERTS_SRC} ${PUERTS_INC}
+        ${PUERTS_SRC} ${PUERTS_INC} ${BEACKEND_QUICKJS_SRC}
     )
 else ()
     if (CMAKE_SYSTEM_NAME MATCHES "Emscripten") 
         add_library(puerts STATIC
-            ${PUERTS_SRC} ${PUERTS_INC}
+            ${PUERTS_SRC} ${PUERTS_INC} ${BEACKEND_QUICKJS_SRC}
         )
     else ()
         add_library(puerts SHARED
-            ${PUERTS_SRC} ${PUERTS_INC}
+            ${PUERTS_SRC} ${PUERTS_INC} ${BEACKEND_QUICKJS_SRC}
         )
    endif ()
 endif ()
+
+target_include_directories(puerts PRIVATE ${BEACKEND_QUICKJS_INC})
 
 if ( WITH_WEBSOCKET EQUAL 3 )
     set(OPENSSL_SOURCE_DIR ${CMAKE_CURRENT_BINARY_DIR}/openssl-src) # default path by CMake
@@ -396,14 +426,11 @@ if ( WITH_WEBSOCKET EQUAL 2 )
     endif ()
 endif ()
 
-option ( USING_V8 "using v8" ON )
-option ( USING_QJS "using quickjs" ON )
-option ( USING_QJS_SUFFIX "add _qjs to namespace of simule v8 api " ON )
-
 if ( USING_MULT_BACKEND )
+    list(APPEND PUERTS_COMPILE_DEFINITIONS PUERTS_REG_NAMESPACE=puerts)
     # -------------------begin v8 backend-------------------------
     if ( USING_V8)
-        add_library(v8backend STATIC
+        set(v8backend_src 
             Src/BackendEnv.cpp
             Src/JSEngine.cpp
             Src/JSFunction.cpp
@@ -411,19 +438,32 @@ if ( USING_MULT_BACKEND )
             Src/PluginImpl.cpp
             ${PUERTS_BACKEND_SRC}
         )
+        if (NOT WITHOUT_IL2CPP_OPTIMIZATION)
+            list(APPEND v8backend_src
+               Src/CppObjectMapper.cpp
+               Src/DataTransfer.cpp
+               Src/PesapiAddonLoad.cpp
+               Src/PesapiV8Impl.cpp
+            )
+        endif()
+        add_library(v8backend STATIC ${v8backend_src})
         target_include_directories (v8backend PRIVATE "${BACKEND_ROOT}/Inc/v8")
-        target_compile_definitions (v8backend PRIVATE PUERTS_NAMESPACE=puerts_v8)
+        target_compile_definitions (v8backend PRIVATE PUERTS_NAMESPACE=puerts)
         target_compile_definitions (v8backend PRIVATE MULT_BACKENDS)
         target_compile_definitions (v8backend PRIVATE V8_BACKEND)
+        target_compile_definitions (v8backend PRIVATE WITH_V8)
         set_target_properties(v8backend PROPERTIES POSITION_INDEPENDENT_CODE ON)
         target_link_libraries(puerts v8backend )
-        target_compile_definitions (puerts PRIVATE V8_BACKEND)
+        target_compile_definitions (puerts PRIVATE MULT_BACKEND_V8)
+        if (NOT WITHOUT_IL2CPP_OPTIMIZATION)
+            target_compile_definitions (v8backend PUBLIC WITH_IL2CPP_OPTIMIZATION)
+        endif()
     endif ()
     # -------------------end v8 backend-------------------------
     
     # -------------------begin qjs backend-------------------------
     if ( USING_QJS)
-        add_library(qjsbackend STATIC
+        set(qjsbackend_src 
             Src/BackendEnv.cpp
             Src/JSEngine.cpp
             Src/JSFunction.cpp
@@ -431,7 +471,16 @@ if ( USING_MULT_BACKEND )
             Src/PluginImpl.cpp
             ${PUERTS_BACKEND_SRC}
         )
-        target_include_directories (qjsbackend PRIVATE "${BACKEND_ROOT}/Inc/quickjs")
+        if (NOT WITHOUT_IL2CPP_OPTIMIZATION)
+            list(APPEND BEACKEND_QUICKJS_INC ${PROJECT_SOURCE_DIR}/papi-quickjs/include)
+            list(APPEND qjsbackend_src
+               papi-quickjs/source/CppObjectMapperQuickjs.cpp
+               papi-quickjs/source/PapiQuickjsImpl.cpp
+            )
+        endif()
+        
+        add_library(qjsbackend STATIC ${qjsbackend_src})
+        target_include_directories (qjsbackend PRIVATE ${BEACKEND_QUICKJS_INC})
         target_compile_definitions (qjsbackend PRIVATE PUERTS_NAMESPACE=puerts_qjs)
         target_compile_definitions (qjsbackend PRIVATE MULT_BACKENDS)
         target_compile_definitions (qjsbackend PRIVATE QJS_BACKEND)
@@ -443,7 +492,10 @@ if ( USING_MULT_BACKEND )
         endif ()
         set_target_properties(qjsbackend PROPERTIES POSITION_INDEPENDENT_CODE ON)
         target_link_libraries(puerts qjsbackend )
-        target_compile_definitions (puerts PRIVATE QJS_BACKEND)
+        target_compile_definitions (puerts PRIVATE MULT_BACKEND_QJS)
+        if (NOT WITHOUT_IL2CPP_OPTIMIZATION)
+            target_compile_definitions (qjsbackend PUBLIC WITH_IL2CPP_OPTIMIZATION)
+        endif()
     endif ()
     # -------------------end qjs backend-------------------------
 endif ()
@@ -590,6 +642,18 @@ target_link_libraries(puerts
 list(APPEND PUERTS_COMPILE_DEFINITIONS ${BACKEND_DEFINITIONS})
 
 target_compile_definitions (puerts PUBLIC ${PUERTS_COMPILE_DEFINITIONS})
+
+if (NOT WITHOUT_IL2CPP_OPTIMIZATION)
+    target_compile_definitions (puerts PUBLIC WITH_IL2CPP_OPTIMIZATION)
+    
+    if (USING_MULT_BACKEND AND USING_V8)
+        target_compile_definitions (puerts PUBLIC WITH_V8)
+    endif()
+endif()
+if (USING_MULT_BACKEND)
+    target_compile_definitions (puerts PUBLIC CUSTOMV8NAMESPACE=v8_qjs)
+endif()
+
 if( USING_MULT_BACKEND )
     if ( USING_V8)
         target_compile_definitions (v8backend PUBLIC ${PUERTS_COMPILE_DEFINITIONS})

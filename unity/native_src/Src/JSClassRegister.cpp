@@ -12,8 +12,10 @@
 #endif
 #include <map>
 #include <cstring>
+#include "TypeInfo.hpp"
+#include "PString.h"
 
-namespace PUERTS_NAMESPACE
+namespace PUERTS_REG_NAMESPACE
 {
 template <class T>
 static T* PropertyInfoDuplicate(T* Arr)

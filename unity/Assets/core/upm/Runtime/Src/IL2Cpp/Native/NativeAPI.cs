@@ -159,6 +159,18 @@ namespace Puerts
                 throw;
             }
         }
+
+        
+#if UNITY_WEBGL
+        [DllImport(DLLNAME, CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr GetWebGLFFIApi();
+        
+        [DllImport(DLLNAME, CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr GetWebGLPapiEnvRef(IntPtr isolate);
+        
+        [DllImport(DLLNAME, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void PreservePuertsCPP();
+#endif
 #endif
     }
 

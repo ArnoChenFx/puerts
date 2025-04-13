@@ -1161,7 +1161,6 @@ handle_underlying:
                     }
                     return FunctionToDelegate(apis, env, jsval, jsClassInfo);
                 }
-                return nullptr;
             }
             auto ptr = apis->get_native_object_ptr(env, jsval);
             if (!ptr)
@@ -1702,7 +1701,7 @@ handle_underlying:
                 }
                 case IL2CPP_TYPE_STRING:
                 {
-                    if (!apis->is_string(env, jsValue))
+                    if (!apis->is_string(env, jsValue) && !apis->is_null(env, jsValue) && !apis->is_undefined(env, jsValue))
                     {
                         return false;
                     }
@@ -1715,9 +1714,9 @@ handle_underlying:
                 case IL2CPP_TYPE_FNPTR:
                 case IL2CPP_TYPE_PTR:
                 {
-                    if (apis->is_function(env, jsValue) && (!Class::IsAssignableFrom(il2cpp_defaults.multicastdelegate_class, parameterKlass) || parameterKlass == il2cpp_defaults.multicastdelegate_class))
+                    if (apis->is_function(env, jsValue) && DataTransfer::IsDelegate(parameterKlass))
                     {
-                        return false;
+                        continue;
                     }
                     if (parameterKlass == il2cpp_defaults.object_class)
                     {
@@ -1731,6 +1730,10 @@ handle_underlying:
                         {
                             return false;
                         }
+                    }
+                    else if (!apis->is_null(env, jsValue) && !apis->is_undefined(env, jsValue))
+                    {
+                        return false;
                     }
                     //nullptr will match ref type
                     break;
@@ -2326,9 +2329,9 @@ static bool IsPrimitive(Il2CppTypeEnum type)
     return (type >= IL2CPP_TYPE_BOOLEAN && type <= IL2CPP_TYPE_R8) || type == IL2CPP_TYPE_I || type == IL2CPP_TYPE_U;
 }
 
-static bool TypeInfoPassToJsFilter(const Il2CppType* type, const Il2CppClass* klass)
+static bool TypeInfoPassToJsFilter(const Il2CppType* type, Il2CppClass* klass)
 {
-    return klass != il2cpp_defaults.void_class && !IsPrimitive(type->type) && IL2CPP_TYPE_ENUM != type->type;
+    return klass != il2cpp_defaults.void_class && !IsPrimitive(type->type) && IL2CPP_TYPE_ENUM != type->type && !Type::IsEnum(type) && Class::GetParent(klass) != il2cpp_defaults.enum_class;
 }
 
 static void SetParamArrayFlagAndOptionalNum(WrapData* data, const MethodInfo* method)

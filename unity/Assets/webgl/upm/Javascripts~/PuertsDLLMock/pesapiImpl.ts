@@ -205,8 +205,9 @@ enum JSTag {
     /* all tags with a reference count are negative */
     JS_TAG_FIRST         = -9, /* first negative tag */
     JS_TAG_STRING        = -9,
-    JS_TAG_BUFFER        = -8,
-    JS_TAG_EXCEPTION     = -7,
+    JS_TAG_STRING16      = -8,
+    JS_TAG_BUFFER        = -7,
+    JS_TAG_EXCEPTION     = -6,
     JS_TAG_NATIVE_OBJECT = -4,
     JS_TAG_ARRAY         = -3,
     JS_TAG_FUNCTION      = -2,
@@ -239,12 +240,15 @@ function getExceptionAsNativeString(wasmApi: PuertsJSEngine.UnityAPI, with_stack
         }
         lastException = null;
         const byteCount = wasmApi.lengthBytesUTF8(result);
-        //console.error(`getExceptionAsNativeString(${byteCount}): ${result}`);
+        // console.log(`getExceptionAsNativeString(${byteCount}): ${result}`);
         if (lastExceptionBuffer) {
             wasmApi._free(lastExceptionBuffer);
         }
         lastExceptionBuffer = wasmApi._malloc(byteCount + 1);
+        // 这不+1会导致少一个字符，看上去stringToUTF8的逻辑是认为该长度是buffer的最大长度，而且确保结尾有\0结束符
         wasmApi.stringToUTF8(result, lastExceptionBuffer, byteCount + 1);
+        // 如果上述推论正确，这行是多余的，不过保险起见还是加下
+        wasmApi.HEAPU8[lastExceptionBuffer + byteCount] = 0;
         return lastExceptionBuffer;
     }
     return 0;
@@ -296,11 +300,12 @@ class Scope {
         return this.objectsInScope[index];
     }
 
-    toJs(wasmApi: PuertsJSEngine.UnityAPI, objMapper: ObjectMapper, pvalue: pesapi_value) : any {
+    toJs(wasmApi: PuertsJSEngine.UnityAPI, objMapper: ObjectMapper, pvalue: pesapi_value, freeStringAndBuffer: boolean = false) : any {
         if (pvalue == 0) return undefined;
 
         const heap = wasmApi.HEAPU8;
-        const valType = Buffer.readInt32(heap, pvalue + 8);
+        const tagPtr = pvalue + 8;
+        const valType = Buffer.readInt32(heap, tagPtr);
         //console.log(`valType: ${valType}`);
         if (valType <= JSTag.JS_TAG_OBJECT && valType >= JSTag.JS_TAG_ARRAY) {
             const objIdx = Buffer.readInt32(heap, pvalue);
@@ -308,8 +313,7 @@ class Scope {
         }
         if (valType == JSTag.JS_TAG_NATIVE_OBJECT) {
             const objId = Buffer.readInt32(heap, pvalue);
-            const typeId = Buffer.readInt32(heap, pvalue + 4);
-            return objMapper.pushNativeObject(objId, typeId, true);
+            return objMapper.findNativeObject(objId); // 肯定已经push过了，直接find就可以了
         }
         switch(valType) {
             case JSTag.JS_TAG_BOOL:
@@ -329,11 +333,36 @@ class Scope {
             case JSTag.JS_TAG_STRING:
                 const strStart = Buffer.readInt32(heap, pvalue);
                 const strLen = Buffer.readInt32(heap, pvalue + 4);
-                return wasmApi.UTF8ToString(strStart as any, strLen);
+                const str = wasmApi.UTF8ToString(strStart as any, strLen);
+                if (freeStringAndBuffer) {
+                    const need_free = Buffer.readInt32(heap, tagPtr + 4); // need_free
+                    if (need_free != 0) {
+                        wasmApi._free(strStart);
+                    }
+                }
+                return str;
+            case JSTag.JS_TAG_STRING16:
+                const str16Start = Buffer.readInt32(heap, pvalue);
+                const str16Len = Buffer.readInt32(heap, pvalue + 4);
+                const str16 = wasmApi.UTF16ToString(str16Start as any, str16Len * 2);
+                if (freeStringAndBuffer) {
+                    const need_free = Buffer.readInt32(heap, tagPtr + 4); // need_free
+                    if (need_free != 0) {
+                        wasmApi._free(str16Start);
+                    }
+                }
+                return str16;
             case JSTag.JS_TAG_BUFFER:
                 const buffStart = Buffer.readInt32(heap, pvalue);
                 const buffLen = Buffer.readInt32(heap, pvalue + 4);
-                return wasmApi.HEAP8.buffer.slice(buffStart, buffStart + buffLen);
+                const buff =  wasmApi.HEAP8.buffer.slice(buffStart, buffStart + buffLen);
+                if (freeStringAndBuffer) {
+                    const need_free = Buffer.readInt32(heap, tagPtr + 4); // need_free
+                    if (need_free != 0) {
+                        wasmApi._free(buffStart);
+                    }
+                }
+                return buff;
         }
         throw new Error(`unsupported type: ${valType}`);
     }
@@ -460,6 +489,8 @@ class ClassRegister {
 
     private typeIdToInfos: Map<number, TypeInfos> = new Map();
 
+    private nameToClass: Map<string, Function> = new Map();
+
     public static getInstance(): ClassRegister {
         if (!ClassRegister.instance) {
             ClassRegister.instance = new ClassRegister();
@@ -489,6 +520,7 @@ class ClassRegister {
         });
         this.typeIdToClass.set(typeId, cls);
         this.typeIdToInfos.set(typeId, infos);
+        this.nameToClass.set(cls.name, cls);
     }
 
     public getClassDataById(typeId: number, forceLoad: boolean): number {
@@ -501,6 +533,10 @@ class ClassRegister {
 
     public findClassById(typeId: number): Function | undefined {
         return this.typeIdToClass.get(typeId);
+    }
+
+    public findClassByName(name: string): Function | undefined {
+        return this.nameToClass.get(name);
     }
 
     public getTypeInfos(typeId: number): TypeInfos | undefined {
@@ -650,7 +686,7 @@ function getBuffer(wasmApi: PuertsJSEngine.UnityAPI, size: number): number {
 }
 
 function jsValueToPapiValue(wasmApi: PuertsJSEngine.UnityAPI, arg: any, value: pesapi_value) {
-    const heap = wasmApi.HEAPU8;
+    let heap = wasmApi.HEAPU8;
 
     const dataPtr = value;
     const tagPtr = dataPtr + 8;
@@ -675,12 +711,13 @@ function jsValueToPapiValue(wasmApi: PuertsJSEngine.UnityAPI, arg: any, value: p
             Buffer.writeInt32(heap, JSTag.JS_TAG_FLOAT64, tagPtr);
         }
     } else if (typeof arg === 'string') {
-        const len = wasmApi.lengthBytesUTF8(arg);
-        const ptr = getBuffer(wasmApi, len + 1);
-        wasmApi.stringToUTF8(arg, ptr, len + 1);
+        const len = wasmApi.lengthBytesUTF16(arg);
+        const ptr = getBuffer(wasmApi, len + 2);
+        wasmApi.stringToUTF16(arg, ptr, len + 2);
+        heap = wasmApi.HEAPU8; // getBuffer会申请内存，可能导致HEAPU8改变
         Buffer.writeInt32(heap, ptr, dataPtr);
-        Buffer.writeInt32(heap, len, dataPtr + 4);
-        Buffer.writeInt32(heap, JSTag.JS_TAG_STRING, tagPtr);
+        Buffer.writeInt32(heap, arg.length, dataPtr + 4);
+        Buffer.writeInt32(heap, JSTag.JS_TAG_STRING16, tagPtr);
         Buffer.writeInt32(heap, 1, tagPtr + 4); // need_free = true
     } else if (typeof arg === 'boolean') {
         Buffer.writeInt32(heap, arg ? 1 : 0, dataPtr);
@@ -695,6 +732,7 @@ function jsValueToPapiValue(wasmApi: PuertsJSEngine.UnityAPI, arg: any, value: p
         const len = arg.byteLength;
         const ptr = getBuffer(wasmApi, len);
         wasmApi.HEAP8.set(new Int8Array(arg), ptr);
+        heap = wasmApi.HEAPU8; // getBuffer会申请内存，可能导致HEAPU8改变
         Buffer.writeInt32(heap, ptr, dataPtr);
         Buffer.writeInt32(heap, len, dataPtr + 4);
         Buffer.writeInt32(heap, JSTag.JS_TAG_BUFFER, tagPtr);
@@ -735,7 +773,7 @@ function genJsCallback(wasmApi: PuertsJSEngine.UnityAPI, callback: number, data:
         const argc = args.length;
         try {
             callbackInfo = jsArgsToCallbackInfo(wasmApi, argc, args);
-            const heap = wasmApi.HEAPU8;
+            const heap = wasmApi.HEAPU8; //在PApiCallbackWithScope前都不会变化，这样用是安全的
             Buffer.writeInt32(heap, data, callbackInfo + 8); // data
             let objId = 0;
             let typeId = 0;
@@ -750,7 +788,7 @@ function genJsCallback(wasmApi: PuertsJSEngine.UnityAPI, callback: number, data:
                 throw getAndClearLastException();
             }
         
-            return Scope.getCurrent().toJs(wasmApi, objMapper, callbackInfo + 16);
+            return Scope.getCurrent().toJs(wasmApi, objMapper, callbackInfo + 16, true);
         } finally {
             returnNativeCallbackInfo(wasmApi, argc, callbackInfo);
         }
@@ -760,6 +798,35 @@ function genJsCallback(wasmApi: PuertsJSEngine.UnityAPI, callback: number, data:
 // 需要在Unity里调用PlayerSettings.WebGL.emscriptenArgs = " -s ALLOW_TABLE_GROWTH=1";
 export function GetWebGLFFIApi(engine: PuertsJSEngine) {
     if (webglFFI) return webglFFI;
+
+    // --------------- pref cmp only start ---------------
+    // 性能优化阶段的对比项，后续连同调用的WasmAdd、IndirectWasmAdd等c++函数及js导出会删除
+    /*
+    const wasmApi = engine.unityApi;
+    const addFuncPtr = engine.unityApi.GetWasmAddPtr();
+    const addFunc = wasmApi.getWasmTableEntry(addFuncPtr);
+    console.log(`add(2, 4) = ${wasmApi.WasmAdd(2, 4)}, ${addFunc(2, 4)} ${wasmApi.IndirectWasmAdd(addFuncPtr, 2, 4)}`);
+    var start = Date.now();
+    const LOOP = 1000000;
+    for(var i = 0; i < LOOP; i++) {
+        wasmApi.WasmAdd(2, 4);
+    }
+    console.log(`call WasmAdd using: ${((Date.now() - start))}`);
+
+    start = Date.now();
+    for(var i = 0; i < LOOP; i++) {
+        addFunc(2, 4);
+    }
+    console.log(`call WasmAddPtr using: ${((Date.now() - start))}`);
+
+    start = Date.now();
+    for(var i = 0; i < LOOP; i++) {
+        wasmApi.IndirectWasmAdd(addFuncPtr, 2, 4)
+    }
+    console.log(`call IndirectWasmAdd using: ${((Date.now() - start))}`);
+    */
+    (globalThis as any).wasmApi = engine.unityApi;
+    // --------------- pref cmp only end ---------------
 
     objMapper = new ObjectMapper();
 
@@ -796,6 +863,10 @@ export function GetWebGLFFIApi(engine: PuertsJSEngine) {
 
     function pesapi_create_string_utf8(env: pesapi_env, str: number, length: number): pesapi_value {
         throw new Error("pesapi_create_string_utf8 not implemented yet!");
+    }
+
+    function pesapi_create_string_utf16(env: pesapi_env, str: number, length: number): pesapi_value {
+        throw new Error("pesapi_create_string_utf16 not implemented yet!");
     }
 
     function pesapi_create_binary(env: pesapi_env, bin: number, length: number): pesapi_value {
@@ -858,6 +929,15 @@ export function GetWebGLFFIApi(engine: PuertsJSEngine) {
         bufsize: number
     ): number {
         throw new Error("pesapi_get_value_string_utf8 not implemented yet!");
+    }
+
+    function pesapi_get_value_string_utf16(
+        env: pesapi_env, 
+        pvalue: pesapi_value, 
+        buf: number, 
+        bufsize: number
+    ): number {
+        throw new Error("pesapi_get_value_string_utf16 not implemented yet!");
     }
 
     function pesapi_get_value_binary(
@@ -1143,10 +1223,10 @@ export function GetWebGLFFIApi(engine: PuertsJSEngine) {
 
     // 和pesapi.h声明不一样，这改为返回值指针由调用者（原生）传入
     function pesapi_eval(env: pesapi_env, pcode: CSString, code_size: number, path: string, presult: pesapi_value): void {
-        if (!globalThis.eval) {
-            throw new Error("eval is not supported"); // TODO: 抛给wasm更合适些
-        }
         try {
+            if (!globalThis.eval) {
+                throw new Error("eval is not supported"); // TODO: 抛给wasm更合适些
+            }
             const code = engine.unityApi.UTF8ToString(pcode, code_size);
             const result = globalThis.eval(code);
             jsValueToPapiValue(engine.unityApi, result, presult);
@@ -1183,6 +1263,7 @@ export function GetWebGLFFIApi(engine: PuertsJSEngine) {
         {func: pesapi_create_uint64, sig: "iji"},
         {func: pesapi_create_double, sig: "iid"},
         {func: pesapi_create_string_utf8, sig: "iiii"},
+        {func: pesapi_create_string_utf16, sig: "iiii"},
         {func: pesapi_create_binary, sig: "iiii"},
         {func: pesapi_create_array, sig: "ii"},
         {func: pesapi_create_object, sig: "ii"},
@@ -1196,6 +1277,7 @@ export function GetWebGLFFIApi(engine: PuertsJSEngine) {
         {func: pesapi_get_value_uint64, sig: "jii"},
         {func: pesapi_get_value_double, sig: "dii"},
         {func: pesapi_get_value_string_utf8, sig: "iiiii"},
+        {func: pesapi_get_value_string_utf16, sig: "iiiii"},
         {func: pesapi_get_value_binary, sig: "iiii"},
         {func: pesapi_get_array_length, sig: "iii"},
         
@@ -1277,12 +1359,18 @@ export function GetWebGLFFIApi(engine: PuertsJSEngine) {
 
     webglFFI = ptr;
     engine.unityApi.InjectPapiGLNativeImpl(webglFFI);
+
+
+    (globalThis as any).findClassByName = function(name: string) {
+        return ClassRegister.getInstance().findClassByName(name);
+    }
+
     return ptr;
 }
 
 export function WebGLRegsterApi(engine: PuertsJSEngine) {
-    // Explicitly define array type to avoid 'never' type inference
-    // Define union type for method/property descriptors
+    GetWebGLFFIApi(engine); // 让webglFFI可用，否则注册genJsCallback传入的webglFFI是undefined
+
     type Descriptor = 
         | { name: string; isStatic: boolean; callback: number; data: number }
         | { 

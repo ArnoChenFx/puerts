@@ -6,7 +6,7 @@
 */
 
 #if UNITY_2020_1_OR_NEWER
-#if (!PUERTS_DISABLE_IL2CPP_OPTIMIZATION && !UNITY_WEBGL && !UNITY_IPHONE || PUERTS_IL2CPP_OPTIMIZATION) && ENABLE_IL2CPP
+#if (!PUERTS_DISABLE_IL2CPP_OPTIMIZATION && !UNITY_IPHONE || PUERTS_IL2CPP_OPTIMIZATION) && ENABLE_IL2CPP
 
 using System;
 using System.Collections.Generic;
@@ -58,6 +58,9 @@ namespace Puerts
 
         public JsEnv(ILoader loader, int debugPort = -1, BackendType backend = BackendType.Auto, IntPtr externalRuntime = default(IntPtr), IntPtr externalContext = default(IntPtr))
         {
+#if !UNITY_EDITOR && UNITY_WEBGL
+            PuertsDLL.InitPuertsWebGL();
+#endif
             this.loader = loader;
             disposed = true;
             if (!isInitialized)
@@ -197,7 +200,7 @@ namespace Puerts
         }
         
         [MonoPInvokeCallback(typeof(Puerts.NativeAPI.LogCallback))]
-        private static void LogCallback(string msg)
+        public static void LogCallback(string msg)
         {
 #if PUERTS_GENERAL || (UNITY_WSA && !UNITY_EDITOR)
 #else
@@ -206,7 +209,7 @@ namespace Puerts
         }
 
         [MonoPInvokeCallback(typeof(Puerts.NativeAPI.LogCallback))]
-        private static void LogWarningCallback(string msg)
+        public static void LogWarningCallback(string msg)
         {
 #if PUERTS_GENERAL || (UNITY_WSA && !UNITY_EDITOR)
 #else
@@ -215,7 +218,7 @@ namespace Puerts
         }
 
         [MonoPInvokeCallback(typeof(Puerts.NativeAPI.LogCallback))]
-        private static void LogErrorCallback(string msg)
+        public static void LogErrorCallback(string msg)
         {
 #if PUERTS_GENERAL || (UNITY_WSA && !UNITY_EDITOR)
 #else

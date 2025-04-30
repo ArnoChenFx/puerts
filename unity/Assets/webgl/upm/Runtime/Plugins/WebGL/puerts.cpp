@@ -164,6 +164,29 @@ extern "C"
     void PreservePuertsCPP()
     {
     }
+    
+    int EMSCRIPTEN_KEEPALIVE WasmAdd(int a, int b)
+    {
+        return a + b;
+    }
+    
+    typedef int(*AddFunc)(int a, int b);
+    
+    int EMSCRIPTEN_KEEPALIVE IndirectWasmAdd(AddFunc add, int a, int b)
+    {
+        return add(a, b);
+    }
+    
+    AddFunc EMSCRIPTEN_KEEPALIVE GetWasmAddPtr(){
+        return WasmAdd;
+    }
+    
+    void InitPapiNative(struct pesapi_ffi* api);
+    
+    void EMSCRIPTEN_KEEPALIVE InjectPapiGLNativeImpl(struct pesapi_ffi* api)
+    {
+        InitPapiNative(api);
+    }
 }
 
 #endif

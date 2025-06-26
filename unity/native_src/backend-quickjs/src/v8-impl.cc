@@ -93,6 +93,9 @@ Isolate* Promise::GetIsolate() {
 
 void V8FinalizerWrap(JSRuntime *rt, JSValue val) {
     Isolate* isolate = (Isolate*)JS_GetRuntimeOpaque(rt);
+    if (!isolate) {
+        return;
+    }
     Isolate::Scope Isolatescope(isolate);
     ObjectUserData* objectUdata = reinterpret_cast<ObjectUserData*>(JS_GetOpaque(val, isolate->class_id_));
     if (objectUdata) {
@@ -142,6 +145,9 @@ Isolate::~Isolate() {
     JS_FreeValueRT(runtime_, literal_values_[kEmptyStringIndex]);
     if (!is_external_runtime_) {
         JS_FreeRuntime(runtime_);
+    }
+    else {
+        JS_SetRuntimeOpaque(runtime_, nullptr);
     }
 };
 
@@ -670,12 +676,9 @@ Local<Set> Set::New(Isolate* isolate) {
     return Local<Set>(set);
 }
 
-static std::vector<uint8_t> dummybuffer;
-
 Local<ArrayBuffer> ArrayBuffer::New(Isolate* isolate, size_t byte_length) {
     ArrayBuffer *ab = isolate->Alloc<ArrayBuffer>();
-    if (dummybuffer.size() < byte_length) dummybuffer.resize(byte_length, 0);
-    ab->value_ = JS_NewArrayBufferCopy(isolate->current_context_->context_, dummybuffer.data(), byte_length);
+    ab->value_ = JS_NewArrayBufferCopy(isolate->current_context_->context_, nullptr, byte_length);
     return Local<ArrayBuffer>(ab);
 }
 

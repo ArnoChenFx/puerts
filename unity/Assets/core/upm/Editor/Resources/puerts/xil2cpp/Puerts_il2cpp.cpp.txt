@@ -622,13 +622,59 @@ static void MethodCallback(struct pesapi_ffi* apis, pesapi_callback_info info)
 static void GetterCallback(struct pesapi_ffi* apis, pesapi_callback_info info)
 {
     FieldWrapData* wrapData = static_cast<FieldWrapData*>(${invokePapi('get_userdata')}(info));
-    wrapData->Getter(apis, info, wrapData->FieldInfo, wrapData->Offset, wrapData->TypeInfo);
+    try
+    {
+        wrapData->Getter(apis, info, wrapData->FieldInfo, wrapData->Offset, wrapData->TypeInfo);
+    }
+    catch (Il2CppExceptionWrapper& exception)
+    {
+        Il2CppClass* klass = il2cpp::vm::Object::GetClass(exception.ex);
+        const MethodInfo* toStringMethod = il2cpp::vm::Class::GetMethodFromName(klass, "ToString", 0);
+
+        Il2CppException* outException = NULL;
+        Il2CppString* result = (Il2CppString*)il2cpp::vm::Runtime::Invoke(toStringMethod, exception.ex, NULL, &outException);
+        if (outException != NULL)
+        {
+            std::string err_info = "unknow c# execption for getter of ";
+            err_info += wrapData->FieldInfo->name;
+            apis->throw_by_string(info, err_info.c_str());
+        }
+        else
+        {
+            const Il2CppChar* utf16 = il2cpp::utils::StringUtils::GetChars(result);
+            std::string str = il2cpp::utils::StringUtils::Utf16ToUtf8(utf16);
+            apis->throw_by_string(info, str.c_str());
+        }
+    }
 }
 
 static void SetterCallback(struct pesapi_ffi* apis, pesapi_callback_info info)
 {
     FieldWrapData* wrapData = static_cast<FieldWrapData*>(${invokePapi('get_userdata')}(info));
-    wrapData->Setter(apis, info, wrapData->FieldInfo, wrapData->Offset, wrapData->TypeInfo);
+    try
+    {
+        wrapData->Setter(apis, info, wrapData->FieldInfo, wrapData->Offset, wrapData->TypeInfo);
+    }
+    catch (Il2CppExceptionWrapper& exception)
+    {
+        Il2CppClass* klass = il2cpp::vm::Object::GetClass(exception.ex);
+        const MethodInfo* toStringMethod = il2cpp::vm::Class::GetMethodFromName(klass, "ToString", 0);
+
+        Il2CppException* outException = NULL;
+        Il2CppString* result = (Il2CppString*)il2cpp::vm::Runtime::Invoke(toStringMethod, exception.ex, NULL, &outException);
+        if (outException != NULL)
+        {
+            std::string err_info = "unknow c# execption for setter of ";
+            err_info += wrapData->FieldInfo->name;
+            apis->throw_by_string(info, err_info.c_str());
+        }
+        else
+        {
+            const Il2CppChar* utf16 = il2cpp::utils::StringUtils::GetChars(result);
+            std::string str = il2cpp::utils::StringUtils::Utf16ToUtf8(utf16);
+            apis->throw_by_string(info, str.c_str());
+        }
+    }
 }
 
 void GetFieldValue(void *ptr, FieldInfo *field, size_t offset, void *value)
@@ -1163,7 +1209,7 @@ handle_underlying:
                 if (IsDelegate(klass))
                 {
                     JsClassInfoHeader* jsClassInfo = (JsClassInfoHeader*)pesapi_get_class_data(klass, true);
-                    if (!jsClassInfo)
+                    if (!jsClassInfo || !jsClassInfo->DelegateBridge)
                     {
                         Exception::Raise(Exception::GetInvalidOperationException("call not load type of delegate"));
                     }
@@ -2629,6 +2675,39 @@ static bool RegisterType(Il2CppClass* klass)
         {
             std::string signature = GetMethodSignature(invoke, true, false);
             classInfo->DelegateBridge = FindBridgeFunc(signature.c_str(), Class::IsInflated(klass));
+            if (!classInfo->DelegateBridge)
+            {
+                signature = "";
+                auto IsSharedable = [](const Il2CppType* type) -> bool
+                    {
+                        if (type->byref) return false;
+                        if (type->type == IL2CPP_TYPE_VOID) return true;
+                        Il2CppClass* paramClass = Class::FromIl2CppType(type, false);
+                        Class::Init(paramClass);
+                        if (Class::IsValuetype(paramClass)) return false;
+                        return true;
+                    };
+
+                if (IsSharedable(invoke->return_type))
+                {
+                    signature += invoke->return_type->type == IL2CPP_TYPE_VOID ? "v" : "o";
+                    bool isParamsSharedable = true;
+                    for (uint32_t i = 0; i < invoke->parameters_count; ++i)
+                    {
+                        const Il2CppType* type = Method::GetParam(invoke, i);
+                        if (!IsSharedable(type))
+                        {
+                            isParamsSharedable = false;
+                            break;
+                        }
+                        signature += "o";
+                    }
+                    if (isParamsSharedable && signature.size() <= 10)
+                    {
+                        classInfo->DelegateBridge = FindBridgeFunc(signature.c_str(), Class::IsInflated(klass));
+                    }
+                }
+            }
         }
         catch (Il2CppExceptionWrapper& exception)
         {

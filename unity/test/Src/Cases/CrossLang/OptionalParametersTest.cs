@@ -83,12 +83,27 @@ namespace Puerts.UnitTest
         [UnityEngine.Scripting.Preserve]
         public int Test5(string i, int j, params bool[] k)
         {
-            return k == null ? - 1 : k.Length;
+            return k == null ? -1 : k.Length;
         }
         [UnityEngine.Scripting.Preserve]
         public int Test6(int d, int i = 1, params string[] strs)
         {
             return i + d;
+        }
+        [UnityEngine.Scripting.Preserve]
+        public string Test7(string keyStr, bool returnKeyIfValueNotFound = true)
+        {
+            return "aa";
+        }
+        [UnityEngine.Scripting.Preserve]
+        public string Test7(string key, params string[] args)
+        {
+            return "bb";
+        }
+        [UnityEngine.Scripting.Preserve]
+        public string Test7(string key, params object[] args)
+        {
+            return "cc";
         }
         [UnityEngine.Scripting.Preserve]
         public bool TestOptClass(List<string> list = default(List<string>))
@@ -227,6 +242,22 @@ namespace Puerts.UnitTest
             
         }
 
+        [Test]
+        public void InstanceMethodTest9()
+        {
+            var jsEnv = UnitTestEnv.GetEnv();
+            int ret = jsEnv.Eval<int>(@"
+                (function() {
+                    let temp = new CS.Puerts.UnitTest.OptionalParametersClass();
+                    let arr = CS.System.Array.CreateInstance(puer.$typeof(CS.System.Boolean), 5); 
+                    return temp.Test5('1', 1, arr);
+                })()
+           ");
+            Assert.AreEqual(5, ret);
+            jsEnv.Tick();
+
+        }
+
         // [Test] 
         // public void InstanceMethodTest9()
         // {
@@ -240,7 +271,7 @@ namespace Puerts.UnitTest
         //         })()
         //    ");
         //     Assert.AreEqual(1, ret);
-            
+
         // }
 
         [Test]
@@ -348,6 +379,22 @@ namespace Puerts.UnitTest
            ");
             Assert.AreEqual(0, ret);            
             jsEnv.Tick();
+        }
+
+        [Test]
+        public void InstanceMethodTest17()
+        {
+            var jsEnv = UnitTestEnv.GetEnv();
+            string ret = jsEnv.Eval<string>(@"
+                (function() {
+                    let temp = new CS.Puerts.UnitTest.OptionalParametersClass();
+                    let ret = temp.Test7('abc', 1);
+                    return ret;
+                })()
+           ");
+            Assert.AreEqual("cc", ret);
+            jsEnv.Tick();
+
         }
 
         [Test]

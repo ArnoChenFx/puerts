@@ -5,59 +5,23 @@
 #include "TypeInfo.hpp"
 #include "PString.h"
 
-namespace pesapi
-{
-namespace regimpl
-{
-pesapi_registry pesapi_create_registry();
-pesapi_type_info pesapi_alloc_type_infos(size_t count);
-void pesapi_set_type_info(
-    pesapi_type_info type_infos, size_t index, const char* name, int is_pointer, int is_const, int is_ref, int is_primitive);
-pesapi_signature_info pesapi_create_signature_info(
-    pesapi_type_info return_type, size_t parameter_count, pesapi_type_info parameter_types);
-const char* str_dup(const char* str);
-void pesapi_define_class(pesapi_registry registry, const void* type_id, const void* super_type_id, const char* module_name,
-    const char* type_name, pesapi_constructor constructor, pesapi_finalize finalize, void* data, int copy_str);
-void pesapi_set_property_info_size(
-    pesapi_registry registry, const void* type_id, int method_count, int function_count, int property_count, int variable_count);
-void pesapi_set_method_info(pesapi_registry registry, const void* type_id, int index, const char* name, int is_static,
-    pesapi_callback method, void* data, int copy_str);
-void pesapi_set_property_info(pesapi_registry registry, const void* type_id, int index, const char* name, int is_static,
-    pesapi_callback getter, pesapi_callback setter, void* getter_data, void* setter_data, int copy_str);
-void* pesapi_get_class_data(pesapi_registry _registry, const void* type_id, int force_load);
-void pesapi_on_class_not_found(pesapi_registry registry, pesapi_class_not_found_callback callback);
-void pesapi_class_type_info(pesapi_registry registry, const char* proto_magic_id, const void* type_id, const void* constructor_info,
-    const void* methods_info, const void* functions_info, const void* properties_info, const void* variables_info);
-const void* pesapi_find_type_id(pesapi_registry registry, const char* module_name, const char* type_name);
-int pesapi_trace_native_object_lifecycle(
-    pesapi_registry registry, const void* type_id, pesapi_on_native_object_enter on_enter, pesapi_on_native_object_exit on_exit);
-}    // namespace regimpl
-}    // namespace pesapi
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+pesapi_registry_api* GetRegisterApi();
+
+#ifdef __cplusplus
+}
+#endif
 
 namespace pesapi
 {
 namespace pythonimpl
 {
 
-inline pesapi_value pesapiValueFromPyObject(PyObject* v)
-{
-    return reinterpret_cast<pesapi_value>(v);
-}
-
-inline PyObject* pyObjectFromPesapiValue(pesapi_value v)
-{
-    return reinterpret_cast<PyObject*>(v);
-}
-
-struct pesapi_callback_info__
-{
-    PyObject* self;    // self object in Python
-    PyObject* args;    // arguments passed to the callback
-    int argc;          // number of arguments
-    void* data;        // user data passed to the callback
-    PyObject* res;     // result of the callback
-    const char* ex;    // exception if any occurred during the callback
-};
+int g_dummy_base_type_id = 0;
+int g_dummy_type_id = 0;
 
 struct TestStructBase
 {
@@ -134,16 +98,14 @@ static void TestStructFinalize(struct pesapi_ffi* apis, void* ptr, void* class_d
 static void BGetterWrap(struct pesapi_ffi* apis, pesapi_callback_info info)
 {
     auto env = apis->get_env(info);
-    auto self = reinterpret_cast<pesapi_value>(reinterpret_cast<pesapi_callback_info__*>(info)->self);
-    auto obj = (TestStructBase*) apis->get_native_object_ptr(env, self);
+    auto obj = (TestStructBase*) apis->get_native_holder_ptr(info);
     apis->add_return(info, apis->create_int32(env, obj->b));
 }
 
 static void BSetterWrap(struct pesapi_ffi* apis, pesapi_callback_info info)
 {
     auto env = apis->get_env(info);
-    auto self = reinterpret_cast<pesapi_value>(reinterpret_cast<pesapi_callback_info__*>(info)->self);
-    auto obj = (TestStructBase*) apis->get_native_object_ptr(env, self);
+    auto obj = (TestStructBase*) apis->get_native_holder_ptr(info);
     auto p0 = apis->get_arg(info, 0);
     obj->b = apis->get_value_int32(env, p0);
 }
@@ -151,8 +113,7 @@ static void BSetterWrap(struct pesapi_ffi* apis, pesapi_callback_info info)
 static void BaseFooWrap(struct pesapi_ffi* apis, pesapi_callback_info info)
 {
     auto env = apis->get_env(info);
-    auto self = reinterpret_cast<pesapi_value>(reinterpret_cast<pesapi_callback_info__*>(info)->self);
-    auto obj = (TestStructBase*) apis->get_native_object_ptr(env, self);
+    auto obj = (TestStructBase*) apis->get_native_holder_ptr(info);
     auto p0 = apis->get_arg(info, 0);
     int a = apis->get_value_int32(env, p0);
     apis->add_return(info, apis->create_int32(env, obj->Foo(a)));
@@ -171,8 +132,7 @@ static void AddWrap(struct pesapi_ffi* apis, pesapi_callback_info info)
 static void CalcWrap(struct pesapi_ffi* apis, pesapi_callback_info info)
 {
     auto env = apis->get_env(info);
-    auto self = reinterpret_cast<pesapi_value>(reinterpret_cast<pesapi_callback_info__*>(info)->self);
-    auto obj = (TestStruct*) apis->get_native_object_ptr(env, self);
+    auto obj = (TestStruct*) apis->get_native_holder_ptr(info);
     auto p0 = apis->get_arg(info, 0);
     auto p1 = apis->get_arg(info, 1);
     int a = apis->get_value_int32(env, p0);
@@ -183,16 +143,14 @@ static void CalcWrap(struct pesapi_ffi* apis, pesapi_callback_info info)
 static void AGetterWrap(struct pesapi_ffi* apis, pesapi_callback_info info)
 {
     auto env = apis->get_env(info);
-    auto self = reinterpret_cast<pesapi_value>(reinterpret_cast<pesapi_callback_info__*>(info)->self);
-    auto obj = (TestStruct*) apis->get_native_object_ptr(env, self);
+    auto obj = (TestStruct*) apis->get_native_holder_ptr(info);
     apis->add_return(info, apis->create_int32(env, obj->a));
 }
 
 static void ASetterWrap(struct pesapi_ffi* apis, pesapi_callback_info info)
 {
     auto env = apis->get_env(info);
-    auto self = reinterpret_cast<pesapi_value>(reinterpret_cast<pesapi_callback_info__*>(info)->self);
-    auto obj = (TestStruct*) apis->get_native_object_ptr(env, self);
+    auto obj = (TestStruct*) apis->get_native_holder_ptr(info);
     auto p0 = apis->get_arg(info, 0);
     obj->a = apis->get_value_int32(env, p0);
 }
@@ -213,37 +171,30 @@ static void CtorCountSetterWrap(struct pesapi_ffi* apis, pesapi_callback_info in
 static void GetSelfWrap(struct pesapi_ffi* apis, pesapi_callback_info info)
 {
     auto env = apis->get_env(info);
-    auto self = reinterpret_cast<pesapi_value>(reinterpret_cast<pesapi_callback_info__*>(info)->self);
-    auto obj = (TestStruct*) apis->get_native_object_ptr(env, self);
-    apis->add_return(info, apis->native_object_to_value(env, typeName, obj, false));
+    auto obj = (TestStruct*) apis->get_native_holder_ptr(info);;
+    apis->add_return(info, apis->native_object_to_value(env, &g_dummy_type_id , obj, false));
 }
 
 static void IncWrap(struct pesapi_ffi* apis, pesapi_callback_info info)
 {
     auto env = apis->get_env(info);
-    auto self = reinterpret_cast<pesapi_value>(reinterpret_cast<pesapi_callback_info__*>(info)->self);
-    auto obj = (TestStruct*) apis->get_native_object_ptr(env, self);
+    auto obj = (TestStruct*) apis->get_native_holder_ptr(info);
     auto p0 = apis->get_arg(info, 0);
     auto unboxed = apis->unboxing(env, p0);
     int p = apis->get_value_int32(env, unboxed);
     obj->Inc(p);
     apis->update_boxed_value(env, p0, apis->create_int32(env, p));
 }
-int g_dummy_base_type_id = 0;
-int g_dummy_type_id = 0;
+
 class PApiBaseTest : public ::testing::Test
 {
 public:
     static void SetUpTestCase()
     {
-        // 封装TestStructBase
-        const int base_properties_count = 2;
-
-        registry = regimpl::pesapi_create_registry();
-        regimpl::pesapi_set_property_info_size(registry, &g_dummy_base_type_id, 1, 0, base_properties_count, 0);
-        regimpl::pesapi_set_property_info(registry, &g_dummy_base_type_id, 0, "b", false, BGetterWrap, BSetterWrap, NULL, NULL, 1);
-        regimpl::pesapi_set_method_info(registry, &g_dummy_base_type_id, 1, "Foo", false, BaseFooWrap, NULL, false);
-        regimpl::pesapi_define_class(registry,&g_dummy_base_type_id, nullptr,nullptr ,baseTypeName,
+        printf("SetUpTestCase\n");
+        Py_Initialize();
+        registry = GetRegisterApi()->create_registry();
+        GetRegisterApi()->define_class(registry,&g_dummy_base_type_id, nullptr,nullptr ,baseTypeName,
             [](struct pesapi_ffi* apis, pesapi_callback_info info) -> void* { // Ctor
                 auto env = apis->get_env(info);
                 auto p0 = apis->get_arg(info, 0);
@@ -253,22 +204,24 @@ public:
         [](struct pesapi_ffi* apis, void* ptr, void* class_data, void* env_private) { // Finalize
             delete static_cast<TestStructBase*>(ptr);
         },nullptr, false);
+        GetRegisterApi()->set_property_info_size(registry, &g_dummy_base_type_id, 1, 0, 1, 0);
+        GetRegisterApi()->set_property_info(registry, &g_dummy_base_type_id, 0, "b", false, BGetterWrap, BSetterWrap, NULL, NULL, 1);
+        GetRegisterApi()->set_method_info(registry, &g_dummy_base_type_id, 0, "Foo", false, BaseFooWrap, NULL, false);
 
         // 封装TestStruct
-        const int properties_count = 6;
-        regimpl::pesapi_set_property_info_size(registry, typeName, 3, 0, properties_count, 0);
-        regimpl::pesapi_set_method_info(registry, &g_dummy_type_id, 0, "Add", true, AddWrap, NULL, NULL);
-        regimpl::pesapi_set_method_info(registry, &g_dummy_type_id, 1, "Calc", false, CalcWrap, NULL, NULL);
-        regimpl::pesapi_set_property_info(registry, &g_dummy_type_id, 2, "a", false, AGetterWrap, ASetterWrap, NULL, NULL, NULL);
-        regimpl::pesapi_set_property_info(
-            registry, &g_dummy_type_id, 3, "ctor_count", true, CtorCountGetterWrap, CtorCountSetterWrap, NULL, NULL, NULL);
-        regimpl::pesapi_set_method_info(registry, &g_dummy_type_id, 4, "GetSelf", false, GetSelfWrap, NULL, NULL);
-        regimpl::pesapi_set_method_info(registry, &g_dummy_type_id, 5, "Inc", false, IncWrap, NULL, NULL);
-        regimpl::pesapi_define_class(registry, &g_dummy_type_id, &g_dummy_base_type_id, nullptr, typeName, TestStructCtor,
-            TestStructFinalize, nullptr, false);
+        GetRegisterApi()->define_class(registry, &g_dummy_type_id, &g_dummy_base_type_id, nullptr, typeName, TestStructCtor,
+            TestStructFinalize, (void*)typeName, false);
+        GetRegisterApi()->set_property_info_size(registry, &g_dummy_type_id, 3, 1, 1, 1);
+        GetRegisterApi()->set_method_info(registry, &g_dummy_type_id, 0, "Add", true, AddWrap, NULL, NULL);
+        GetRegisterApi()->set_method_info(registry, &g_dummy_type_id, 0, "Calc", false, CalcWrap, NULL, NULL);
+        GetRegisterApi()->set_property_info(registry, &g_dummy_type_id, 0, "a", false, AGetterWrap, ASetterWrap, NULL, NULL, NULL);
+        GetRegisterApi()->set_property_info(
+            registry, &g_dummy_type_id, 0, "ctor_count", true, CtorCountGetterWrap, CtorCountSetterWrap, NULL, NULL, NULL);
+        GetRegisterApi()->set_method_info(registry, &g_dummy_type_id, 1, "GetSelf", false, GetSelfWrap, NULL, NULL);
+        GetRegisterApi()->set_method_info(registry, &g_dummy_type_id, 2, "Inc", false, IncWrap, NULL, NULL);
 
-        regimpl::pesapi_trace_native_object_lifecycle(registry, baseTypeName, OnObjEnter, OnObjExit);
-        regimpl::pesapi_trace_native_object_lifecycle(registry, typeName, OnObjEnter, OnObjExit);
+        GetRegisterApi()->trace_native_object_lifecycle(registry, &g_dummy_base_type_id, OnObjEnter, OnObjExit);
+        GetRegisterApi()->trace_native_object_lifecycle(registry, &g_dummy_type_id, OnObjEnter, OnObjExit);
     }
 
     static void* BindData;
@@ -278,7 +231,7 @@ public:
     static pesapi_registry registry;
     static void* OnObjEnter(void* ptr, void* class_data, void* env_private)
     {
-        // printf("OnObjEnter:%p, %p, %p\n", ptr, class_data, env_private);
+        /// printf("OnObjEnter:%p, %p, %p\n", ptr, class_data, env_private);
         ObjPtr = ptr;
         ClassData = class_data;
         EnvPrivate = env_private;
@@ -296,6 +249,8 @@ public:
 
     static void TearDownTestCase()
     {
+        printf("TearDownTestCase\n");
+        Py_Finalize();
     }
 
     static void Foo(struct pesapi_ffi* apis, pesapi_callback_info info)
@@ -332,9 +287,10 @@ protected:
 
         scope = apis->open_scope(env_ref);
         auto env = apis->get_env_from_ref(env_ref);
+        apis->set_registry(env, registry);
 
         auto g = apis->global(env);
-        // apis->set_property(env, g, "loadClass", apis->create_function(env, LoadClass, this, nullptr));
+        apis->set_property(env, g, "loadClass", apis->create_function(env, LoadClass, this, nullptr));
         apis->close_scope(scope);
         scope = apis->open_scope(env_ref);
     }
@@ -348,10 +304,10 @@ protected:
             char buff[1024];
             size_t len = sizeof(buff);
             const char* className = apis->get_value_string_utf8(env, arg0, buff, &len);
-            auto clsDef = (puerts::ScriptClassDefinition) regimpl::pesapi_find_type_id(registry, nullptr, className);
-            if (clsDef.TypeId != nullptr)
+            auto typeId = GetRegisterApi()->find_type_id(registry, nullptr, className);
+            if (typeId != nullptr)
             {
-                auto ret = apis->create_class(env, clsDef.TypeId);
+                auto ret = apis->create_class(env, typeId);
                 apis->add_return(info, ret);
             }
             else
@@ -382,7 +338,7 @@ protected:
     pesapi_scope scope;
 };
 
-TEST_F(PApiBaseTest, CreateAndDestroyMultQjsEnv)
+TEST_F(PApiBaseTest, CreateAndDestroyMultEnv)
 {
     for (int i = 0; i < 5; i++)
     {
@@ -391,13 +347,47 @@ TEST_F(PApiBaseTest, CreateAndDestroyMultQjsEnv)
     }
 }
 
+TEST_F(PApiBaseTest, MultEnv)
+{
+    const int count = 5;
+    pesapi_env_ref env_refs[count];
+    for (int i = 0; i < count; i++)
+    {
+        pesapi_env_ref env_ref = create_py_env();
+        env_refs[i] = env_ref;
+        auto localScope = apis->open_scope(env_ref);
+        auto env = apis->get_env_from_ref(env_ref);
+        apis->set_registry(env, registry);
+        char buf[128];
+        snprintf(buf, sizeof(buf), "exec(\"gv = %d\")", i + 1);
+        apis->eval(env, (const uint8_t*) (buf), strlen(buf), "test.py");
+        apis->close_scope(localScope);
+    }
+
+    for (int i = 0; i < count; i++)
+    {
+        auto env_ref = env_refs[i];
+        auto localScope = apis->open_scope(env_ref);
+        auto env = apis->get_env_from_ref(env_ref);
+        auto gv = apis->get_property(env, apis->global(env), "gv");
+        ASSERT_TRUE(apis->is_int32(env, gv));
+        ASSERT_TRUE(apis->get_value_int32(env, gv) == i + 1);
+        apis->close_scope(localScope);
+    }
+
+    for (int i = 0; i < count; i++)
+    {
+        destroy_py_env(env_refs[i]);
+    }
+}
+
 TEST_F(PApiBaseTest, RegApi)
 {
     const void* typeId = "Test";
     int dummyTypeId = 0;
-    regimpl::pesapi_define_class(registry, &dummyTypeId, nullptr, nullptr, "Test", nullptr, nullptr, nullptr, false);
-    regimpl::pesapi_set_property_info_size(registry, &dummyTypeId, 0, 1, 0, 0);
-    regimpl::pesapi_set_method_info(registry, &dummyTypeId, 0, "Foo", true, Foo, nullptr, false);
+    GetRegisterApi()->define_class(registry, &dummyTypeId, nullptr, nullptr, "Test", nullptr, nullptr, nullptr, false);
+    GetRegisterApi()->set_property_info_size(registry, &dummyTypeId, 0, 1, 0, 0);
+    GetRegisterApi()->set_method_info(registry, &dummyTypeId, 0, "Foo", true, Foo, nullptr, false);
 
     auto clsDef = puerts::FindClassByID((puerts::ScriptClassRegistry*)registry, &dummyTypeId);
     ASSERT_TRUE(clsDef != nullptr);
@@ -441,7 +431,7 @@ TEST_F(PApiBaseTest, SetToGlobal)
     apis->set_property(env, g, "SetToGlobal", apis->create_int32(env, 123));
 
     auto code = "SetToGlobal";
-    auto ret = apis->eval(env, (const uint8_t*) (code), strlen(code), "test.js");
+    auto ret = apis->eval(env, (const uint8_t*) (code), strlen(code), "test.py");
     ASSERT_TRUE(ret != nullptr);
     ASSERT_TRUE(apis->is_int32(env, ret));
     EXPECT_EQ(123, apis->get_value_int32(env, ret));
@@ -519,13 +509,9 @@ TEST_F(PApiBaseTest, ClassCtorFinalize)
     TestStruct::lastCtorObject = nullptr;
     TestStruct::lastDtorObject = nullptr;
 
-    auto code = R"(
-                (function() {
-                    const TestStruct = loadClass('TestStruct');
-                    const obj = new TestStruct(123);
-                })();
-              )";
-    apis->eval(env, (const uint8_t*) (code), strlen(code), "test.js");
+    auto code = "(lambda: (loadClass('TestStruct')(123), None)[1])()";
+    
+    apis->eval(env, (const uint8_t*) (code), strlen(code), "test.py");
     if (apis->has_caught(scope))
     {
         printf("%s\n", apis->get_exception_as_string(scope, true));
@@ -541,13 +527,8 @@ TEST_F(PApiBaseTest, StaticFunctionCall)
 {
     auto env = apis->get_env_from_ref(env_ref);
 
-    auto code = R"(
-                (function() {
-                    const TestStruct = loadClass('TestStruct');
-                    return TestStruct.Add(123, 456);
-                })();
-              )";
-    auto ret = apis->eval(env, (const uint8_t*) (code), strlen(code), "test.js");
+    auto code = "(lambda: loadClass('TestStruct').Add(123,456))()";
+    auto ret = apis->eval(env, (const uint8_t*) (code), strlen(code), "test.py");
     if (apis->has_caught(scope))
     {
         printf("%s\n", apis->get_exception_as_string(scope, true));
@@ -561,14 +542,9 @@ TEST_F(PApiBaseTest, InstanceMethodCall)
 {
     auto env = apis->get_env_from_ref(env_ref);
 
-    auto code = R"(
-                (function() {
-                    const TestStruct = loadClass('TestStruct');
-                    const obj = new TestStruct(123);
-                    return obj.Calc(123, 456);
-                })();
-              )";
-    auto ret = apis->eval(env, (const uint8_t*) (code), strlen(code), "test.js");
+    //auto code = "(lambda obj: (obj.Calc, obj.Calc))(loadClass('TestStruct')(123))";
+    auto code = "(lambda obj: obj.Calc(123, 456))(loadClass('TestStruct')(123))";
+    auto ret = apis->eval(env, (const uint8_t*) (code), strlen(code), "test.py");
     if (apis->has_caught(scope))
     {
         printf("%s\n", apis->get_exception_as_string(scope, true));
@@ -582,17 +558,12 @@ TEST_F(PApiBaseTest, PropertyAccess)
 {
     auto env = apis->get_env_from_ref(env_ref);
 
-    auto code = R"(
-                (function() {
-                    const TestStruct = loadClass('TestStruct');
-                    const obj = new TestStruct(123);
-                    let ret = "" + obj.a + ":";
-                    obj.a = 0;
-                    ret += obj.Calc(123, 456);
-                    return ret;
-                })();
-              )";
-    auto ret = apis->eval(env, (const uint8_t*) (code), strlen(code), "test.js");
+    auto code = R"((lambda obj: (
+        ret:=str(obj.a)+':',
+        exec('obj.a=0'),
+        ret+str(obj.Calc(123,456))
+    ))( loadClass('TestStruct')(123) )[-1])";
+    auto ret = apis->eval(env, (const uint8_t*) (code), strlen(code), "test.py");
     if (apis->has_caught(scope))
     {
         printf("%s\n", apis->get_exception_as_string(scope, true));
@@ -610,17 +581,12 @@ TEST_F(PApiBaseTest, VariableAccess)
 {
     auto env = apis->get_env_from_ref(env_ref);
 
-    auto code = R"(
-                (function() {
-                    const TestStruct = loadClass('TestStruct');
-                    const obj = new TestStruct(123);
-                    const ret = TestStruct.ctor_count
-                    TestStruct.ctor_count = 999;
-                    return ret;
-                })();
-              )";
+    auto code = R"((lambda TestStruct: (
+        TestStruct.get_ctor_count(),
+        TestStruct.set_ctor_count(999)
+    ))(loadClass('TestStruct'))[0])";
     TestStruct::ctor_count = 100;
-    auto ret = apis->eval(env, (const uint8_t*) (code), strlen(code), "test.js");
+    auto ret = apis->eval(env, (const uint8_t*) (code), strlen(code), "test.py");
     if (apis->has_caught(scope))
     {
         printf("%s\n", apis->get_exception_as_string(scope, true));
@@ -628,22 +594,22 @@ TEST_F(PApiBaseTest, VariableAccess)
     ASSERT_FALSE(apis->has_caught(scope));
     EXPECT_EQ(999, TestStruct::ctor_count);
     ASSERT_TRUE(apis->is_int32(env, ret));
-    EXPECT_EQ(101, apis->get_value_int32(env, ret));
+    EXPECT_EQ(100, apis->get_value_int32(env, ret));
 }
 
 TEST_F(PApiBaseTest, ReturnAObject)
 {
     auto env = apis->get_env_from_ref(env_ref);
 
-    auto code = R"(
-                (function() {
-                    const TestStruct = loadClass('TestStruct');
-                    const obj = new TestStruct(123);
-                    const self = obj.GetSelf();
-                    return obj == self;
-                })();
-              )";
-    auto ret = apis->eval(env, (const uint8_t*) (code), strlen(code), "test.js");
+auto code = R"(
+(lambda: (
+    TestStruct := loadClass('TestStruct'),
+    obj := TestStruct(123),
+    self := obj.GetSelf(),
+    obj == self
+)[-1])()
+)";
+    auto ret = apis->eval(env, (const uint8_t*) (code), strlen(code), "test.py");
     if (apis->has_caught(scope))
     {
         printf("%s\n", apis->get_exception_as_string(scope, true));
@@ -657,15 +623,8 @@ TEST_F(PApiBaseTest, MutiObject)
 {
     auto env = apis->get_env_from_ref(env_ref);
 
-    auto code = R"(
-def test_func():
-    TestStruct = loadClass('TestStruct')
-    for i in range(1000):
-        obj = TestStruct(123)
-        self_obj = obj.GetSelf()
-test_func()
-              )";
-    auto ret = apis->eval(env, (const uint8_t*) (code), strlen(code), "test.js");
+    auto code = R"((lambda: [(TestStruct := loadClass('TestStruct')),[ (obj := TestStruct(123), self_obj := obj.GetSelf()) for i in range(1000) ]])())";
+    auto ret = apis->eval(env, (const uint8_t*) (code), strlen(code), "test.py");
     if (apis->has_caught(scope))
     {
         printf("%s\n", apis->get_exception_as_string(scope, true));
@@ -678,7 +637,7 @@ TEST_F(PApiBaseTest, RefArgument)
     auto env = apis->get_env_from_ref(env_ref);
 
     auto code = "(lambda lst=[3]: (loadClass('TestStruct')(2).Inc(lst), lst[0])[1])()";
-    auto ret = apis->eval(env, (const uint8_t*) (code), strlen(code), "test.js");
+    auto ret = apis->eval(env, (const uint8_t*) (code), strlen(code), "test.py");
     if (apis->has_caught(scope))
     {
         printf("%s\n", apis->get_exception_as_string(scope, true));
@@ -709,17 +668,12 @@ TEST_F(PApiBaseTest, CallFunction)
 TEST_F(PApiBaseTest, SuperAccess)
 {
     auto env = apis->get_env_from_ref(env_ref);
-    auto code = R"(
-                (function() {
-                    const TestStruct = loadClass('TestStruct');
-                    const obj = new TestStruct(123);
-                    let ret = "" + obj.b + ":"; // 122
-                    obj.b = 5
-                    ret += obj.Foo(6); // 11
-                    return ret;
-                })();
-              )";
-    auto ret = apis->eval(env, (const uint8_t*) (code), strlen(code), "test.js");
+    auto code = R"((lambda obj: (
+        ret:=str(obj.b)+':',
+        exec('obj.b=5'),
+        ret+str(obj.Foo(6))
+    ))( loadClass('TestStruct')(123) )[-1])";
+    auto ret = apis->eval(env, (const uint8_t*) (code), strlen(code), "test.py");
     if (apis->has_caught(scope))
     {
         printf("%s\n", apis->get_exception_as_string(scope, true));
@@ -752,12 +706,8 @@ TEST_F(PApiBaseTest, LifecycleTrace)
     int p2;
     BindData = &p2;
 
-    auto code = R"(
-                    const TestStruct = loadClass('TestStruct');
-                    obj = new TestStruct(123);
-              )";
-
-    apis->eval(env, (const uint8_t*) (code), strlen(code), "test.js");
+    auto code = "(lambda: globals().__setitem__('obj', loadClass('TestStruct')(123)))()";
+    apis->eval(env, (const uint8_t*) (code), strlen(code), "test.py");
     ASSERT_FALSE(apis->has_caught(scopeInner));
     EXPECT_EQ(&p, EnvPrivate);
     EXPECT_EQ((void*) typeName, ClassData);
@@ -769,13 +719,9 @@ TEST_F(PApiBaseTest, LifecycleTrace)
     ClassData = nullptr;
     EnvPrivate = nullptr;
     BindData = nullptr;
+    code = R"(exec("obj = None"))";
 
-    code = R"(
-                    obj = undefined;
-              )";
-
-    apis->eval(env, (const uint8_t*) (code), strlen(code), "test.js");
-
+    apis->eval(env, (const uint8_t*) (code), strlen(code), "test.py");
     ASSERT_FALSE(apis->has_caught(scopeInner));
 
     apis->close_scope(scopeInner);    // 还存放引用在scope里，通过close_scope释放
@@ -800,12 +746,46 @@ TEST_F(PApiBaseTest, ObjectPrivate)
     EXPECT_EQ(&t, p);
     // pycode
     auto code = R"(lambda: print("Hello from func"))";
-    auto ret = apis->eval(env, (const uint8_t*) (code), strlen(code), "test.js");
+    auto ret = apis->eval(env, (const uint8_t*) (code), strlen(code), "test.py");
     ASSERT_FALSE(apis->has_caught(scope));
     ASSERT_TRUE(apis->is_function(env, ret));
     // EXPECT_EQ(true, apis->set_private(env, ret, &t));
     // EXPECT_EQ(true, apis->get_private(env, ret, &p));
     EXPECT_EQ(&t, p);
+}
+
+TEST_F(PApiBaseTest, CallMethodDirectly)
+{
+    auto env = apis->get_env_from_ref(env_ref);
+
+    auto code = R"((lambda obj: obj.call_method('Calc', (123, 456)))(loadClass('TestStruct')(123)))";
+
+    auto ret = apis->eval(env, (const uint8_t*) (code), strlen(code), "test.py");
+    if (apis->has_caught(scope))
+    {
+        printf("%s\n", apis->get_exception_as_string(scope, true));
+        FAIL();
+    }
+
+    ASSERT_FALSE(apis->has_caught(scope));
+    ASSERT_TRUE(apis->is_int32(env, ret));
+    EXPECT_EQ(702, apis->get_value_int32(env, ret));
+}
+
+TEST_F(PApiBaseTest, UTF16Test)
+{
+    auto env = apis->get_env_from_ref(env_ref);
+    char16_t str[] = u"Hello";
+    auto val = apis->create_string_utf16(env, (uint16_t*)str, 5);
+    ASSERT_TRUE(val != nullptr);
+    ASSERT_TRUE(apis->is_string(env, val));
+    size_t len = 0;
+    apis->get_value_string_utf16(env, val, nullptr, &len);
+    ASSERT_EQ(len, 5);
+    char16_t buff[6] = {0};
+    apis->get_value_string_utf16(env, val, (uint16_t*)buff, &len);
+    buff[5] = 0;
+    EXPECT_EQ(0, std::u16string(buff).compare(u"Hello"));
 }
 
 /*TEST_F(PApiBaseTest, EvalStrlenPlusOne)

@@ -13,6 +13,8 @@
 
 #include "PapiData.h"
 
+#define CTX_ATTR_NAME "__context_puerts__"
+
 namespace pesapi
 {
 namespace pythonimpl
@@ -57,7 +59,7 @@ PyObject* CppObjectMapper::CreateFunction(pesapi_callback Callback, void* Data, 
                 PyErr_SetString(PyExc_RuntimeError, "Invalid callback data");
                 return nullptr;
             }
-            pesapi_callback_info__ callbackInfo  { nullptr, args, PyTuple_Size(args), data->data, nullptr, nullptr };
+            pesapi_callback_info__ callbackInfo  { nullptr, nullptr, args, PyTuple_Size(args), data->data, nullptr, nullptr, data->mapper };
             data->callback(&pesapi::pythonimpl::g_pesapi_ffi, reinterpret_cast<pesapi_callback_info>(&callbackInfo));
             if (callbackInfo.ex)
             {
@@ -89,13 +91,34 @@ PyObject* CppObjectMapper::CreateError(const char* message)
     return nullptr;
 }
 
-// TODO
 void CppObjectMapper::BindAndAddToCache(
     const puerts::ScriptClassDefinition* typeInfo, const void* ptr, PyObject* value, bool callFinalize)
 {
+    DynObj* dynObj = (DynObj*)value;
+    dynObj->objectPtr = (void*)(ptr);
+    dynObj->classDefinition = typeInfo;
+    dynObj->mapper = this;
+
+    auto Iter = CDataCache.find(ptr);
+    FObjectCacheNode* CacheNodePtr;
+    if (Iter != CDataCache.end())
+    {
+        CacheNodePtr = Iter->second.Add(typeInfo->TypeId);
+    }
+    else
+    {
+        auto Ret = CDataCache.insert({ptr, FObjectCacheNode(typeInfo->TypeId)});
+        CacheNodePtr = &Ret.first->second;
+    }
+    CacheNodePtr->MustCallFinalize = callFinalize;
+    CacheNodePtr->Value = value;
+
+    if (typeInfo->OnEnter)
+    {
+        CacheNodePtr->UserData = typeInfo->OnEnter((void*)ptr, typeInfo->Data, (void*)GetEnvPrivate());
+    }
 }
 
-// TODO
 void CppObjectMapper::RemoveFromCache(const puerts::ScriptClassDefinition* typeInfo, const void* ptr)
 {
     auto Iter = CDataCache.find(ptr);
@@ -114,29 +137,627 @@ void CppObjectMapper::RemoveFromCache(const puerts::ScriptClassDefinition* typeI
     }
 }
 
-// TODO
 PyObject* CppObjectMapper::PushNativeObject(const void* TypeId, void* ObjectPtr, bool callFinalize)
 {
-    return nullptr;
+    if (!ObjectPtr)
+    {
+        Py_RETURN_NONE;
+    }
+
+    if (!callFinalize)
+    {
+        auto Iter = CDataCache.find(ObjectPtr);
+        if (Iter != CDataCache.end())
+        {
+            auto CacheNodePtr = Iter->second.Find(TypeId);
+            if (CacheNodePtr)
+            {
+                Py_INCREF(CacheNodePtr->Value);
+                return CacheNodePtr->Value;
+            }
+        }
+    }
+
+    auto ClassDefinition = puerts::LoadClassByID(registry, TypeId);
+    if (!ClassDefinition)
+    {
+        ClassDefinition = &PtrClassDef;
+    }
+    PyObject* cls = FindOrCreateClass(ClassDefinition);
+    if (!cls)
+    {
+        return nullptr;
+    }
+
+    auto* obj = PyObject_New(PyObject, (PyTypeObject*) cls);
+    Py_DECREF(cls);
+    if (!obj)
+    {
+        return nullptr;
+    }
+
+    BindAndAddToCache(ClassDefinition, ObjectPtr, obj, callFinalize);
+
+    return obj;
 }
 
-// TODO
-PyObject* CppObjectMapper::MakeMethod(pesapi_callback Callback, void* Data)
+typedef struct
 {
-    return nullptr;
+    PyObject_HEAD
+    puerts::ScriptFunctionInfo* funcInfo;
+    DynObj* dynObj;
+    CppObjectMapper* mapper;
+} PyMethodObject;
+
+static void PyMethodObject_dealloc(PyMethodObject* self)
+{
+    // Release reference to dynObj when method object is deallocated
+    if (self->dynObj) {
+        Py_DECREF((PyObject*)self->dynObj);
+    }
+    Py_TYPE(self)->tp_free((PyObject*)self);
 }
 
-// TODO
-void CppObjectMapper::InitMethod(puerts::ScriptFunctionInfo* FuncInfo, PyObject* Obj)
+static PyObject* PyMethodObject_call(PyMethodObject* self, PyObject* args, PyObject* kwargs)
 {
+    if (!self->funcInfo || !self->funcInfo->Callback) {
+        PyErr_SetString(PyExc_RuntimeError, "Invalid function info or callback");
+        return nullptr;
+    }
+    
+    pesapi_callback_info__ callbackInfo  { self->dynObj ? self->dynObj->objectPtr : nullptr, self->dynObj ? self->dynObj->classDefinition->TypeId : nullptr, args, PyTuple_Size(args), self->funcInfo->Data, nullptr, nullptr,self->mapper };
+    self->funcInfo->Callback(&pesapi::pythonimpl::g_pesapi_ffi, reinterpret_cast<pesapi_callback_info>(&callbackInfo));
+    if (callbackInfo.ex)
+    {
+        PyErr_SetString(PyExc_RuntimeError, callbackInfo.ex);
+        return nullptr;
+    }
+
+    if (callbackInfo.res)
+    {
+        Py_INCREF(callbackInfo.res);
+        return callbackInfo.res;
+    }
+
+    Py_RETURN_NONE;
 }
+
+static PyObject* PyMethodObject_repr(PyMethodObject* self) 
+{
+    if (!self->funcInfo || !self->funcInfo->Name) {
+        return PyUnicode_FromString("<foreign method (invalid)>");
+    }
+    return PyUnicode_FromFormat("<foreign method %s>", self->funcInfo->Name);
+}
+
+static PyObject* PyMethodObject_get_name(PyMethodObject* self, void* c) 
+{
+    if (!self->funcInfo || !self->funcInfo->Name) {
+        return PyUnicode_FromString("(invalid)");
+    }
+    return PyUnicode_FromString(self->funcInfo->Name);
+}
+
+static PyGetSetDef PyMethodObject_getset[] = 
+{
+    {"__name__", (getter)PyMethodObject_get_name, NULL, NULL, NULL},
+    {NULL, NULL, NULL, NULL, NULL}
+};
+
+static PyTypeObject PyMethodObject_Type = {
+    PyVarObject_HEAD_INIT(NULL, 0)
+    "bridge.PyMethodObject",        /* tp_name */
+    sizeof(PyMethodObject),         /* tp_basicsize */
+    0,                             /* tp_itemsize */
+    (destructor)PyMethodObject_dealloc, /* tp_dealloc */
+    0,                             /* tp_vectorcall_offset */
+    0,                             /* tp_getattr */
+    0,                             /* tp_setattr */
+    0,                             /* tp_as_async */
+    (reprfunc)PyMethodObject_repr, /* tp_repr */
+    0,                             /* tp_as_number */
+    0,                             /* tp_as_sequence */
+    0,                             /* tp_as_mapping */
+    0,                             /* tp_hash */
+    (ternaryfunc)PyMethodObject_call, /* tp_call */
+    0,                             /* tp_str */
+    0,                             /* tp_getattro */
+    0,                             /* tp_setattro */
+    0,                             /* tp_as_buffer */
+    Py_TPFLAGS_DEFAULT,            /* tp_flags */
+    0,                             /* tp_doc */
+    0,                             /* tp_traverse */
+    0,                             /* tp_clear */
+    0,                             /* tp_richcompare */
+    0,                             /* tp_weaklistoffset */
+    0,                             /* tp_iter */
+    0,                             /* tp_iternext */
+    0,                             /* tp_methods */
+    0,                             /* tp_members */
+    PyMethodObject_getset,         /* tp_getset */
+};
+
+PyObject* CppObjectMapper::MakeFunction(puerts::ScriptFunctionInfo* FuncInfo, DynObj* Obj)
+{
+    if (!FuncInfo) {
+        PyErr_SetString(PyExc_RuntimeError, "FuncInfo cannot be null");
+        return nullptr;
+    }
+    
+    PyMethodObject *methodObj = (PyMethodObject *)PyObject_New(PyMethodObject, &PyMethodObject_Type);
+    if (!methodObj) {
+        return nullptr;
+    }
+    
+    methodObj->funcInfo = FuncInfo;
+    methodObj->dynObj = Obj;
+    methodObj->mapper = this;
+    // Increase reference count to keep dynObj alive while method exists
+    if (Obj) {
+        Py_INCREF((PyObject*)Obj);
+    }
+    return (PyObject *)methodObj;
+}
+
+static PyObject* propGetter(PyObject* self, void* closure)
+{
+    auto* info = (CppObjectMapper::GetterSetterInfo*) closure;
+    pesapi_callback callback = info->getter;
+
+    pesapi_scope__ scope(info->mapper);
+    pesapi_callback_info__ callbackInfo{((DynObj*) self)->objectPtr, ((DynObj*) self)->classDefinition->TypeId, nullptr, 0,
+        info->getterData, nullptr, nullptr, info->mapper};
+    callback(&g_pesapi_ffi, reinterpret_cast<pesapi_callback_info>(&callbackInfo));
+    if (callbackInfo.ex)
+    {
+        PyErr_SetString(PyExc_RuntimeError, callbackInfo.ex);
+        return nullptr;
+    }
+    if (callbackInfo.res)
+    {
+        Py_INCREF(callbackInfo.res);
+        return callbackInfo.res;
+    }
+    Py_RETURN_NONE;
+};
+
+static int propSetter(PyObject* self, PyObject* value, void* closure)
+{
+    if (!value)
+    {
+        PyErr_SetString(PyExc_RuntimeError, "Native property value cannot be null and cannot be deleted");
+        return -1;
+    }
+
+    auto* info = (CppObjectMapper::GetterSetterInfo*) closure;
+    pesapi_callback callback = info->setter;
+
+    pesapi_scope__ scope(info->mapper);
+    pesapi_callback_info__ callbackInfo{((DynObj*) self)->objectPtr, ((DynObj*) self)->classDefinition->TypeId,
+        PyTuple_Pack(1, value), 1, info->setterData, nullptr, nullptr, info->mapper};
+    callback(&g_pesapi_ffi, reinterpret_cast<pesapi_callback_info>(&callbackInfo));
+    if (callbackInfo.ex)
+    {
+        PyErr_SetString(PyExc_RuntimeError, callbackInfo.ex);
+        return -1;
+    }
+    return 0;
+};
 
 // TODO
 void CppObjectMapper::InitProperty(puerts::ScriptPropertyInfo* PropInfo, PyObject* Obj)
 {
+    auto info = (GetterSetterInfo*) PyMem_Malloc(sizeof(GetterSetterInfo));
+    info->getter = PropInfo->Getter;
+    info->setter = PropInfo->Setter;
+    info->getterData = PropInfo->GetterData;
+    info->setterData = PropInfo->SetterData;
+    info->mapper = this;
+
+    auto* def = (PyGetSetDef*) PyMem_Malloc(sizeof(PyGetSetDef));
+    def->name = PropInfo->Name;
+    def->get = nullptr;
+    def->set = nullptr;
+    def->doc = nullptr;
+    def->closure = info;
+
+    if (PropInfo->Getter)
+    {
+        def->get = propGetter;
+    }
+    if (PropInfo->Setter)
+    {
+        def->set = propSetter;
+    }
+
+    auto prop = PyDescr_NewGetSet((PyTypeObject*)Obj, def);
+    PyObject_SetAttrString(Obj, PropInfo->Name, prop);
+    Py_DECREF(prop);
 }
 
-// TODO
+static PyObject* staticPropGetter(PyObject* self, void* closure)
+{
+    auto* info = (CppObjectMapper::GetterSetterInfo*) closure;
+    pesapi_callback callback = info->getter;
+
+    pesapi_scope__ scope(info->mapper);
+    // For static properties, we don't have an object instance, so objectPtr is nullptr
+    pesapi_callback_info__ callbackInfo{nullptr, nullptr, nullptr, 0,
+        info->getterData, nullptr, nullptr, info->mapper};
+    callback(&g_pesapi_ffi, reinterpret_cast<pesapi_callback_info>(&callbackInfo));
+    if (callbackInfo.ex)
+    {
+        PyErr_SetString(PyExc_RuntimeError, callbackInfo.ex);
+        return nullptr;
+    }
+    if (callbackInfo.res)
+    {
+        Py_INCREF(callbackInfo.res);
+        return callbackInfo.res;
+    }
+    Py_RETURN_NONE;
+};
+
+static int staticPropSetter(PyObject* self, PyObject* value, void* closure)
+{
+    if (!value)
+    {
+        PyErr_SetString(PyExc_RuntimeError, "Native static property value cannot be null and cannot be deleted");
+        return -1;
+    }
+
+    auto* info = (CppObjectMapper::GetterSetterInfo*) closure;
+    pesapi_callback callback = info->setter;
+
+    pesapi_scope__ scope(info->mapper);
+    // For static properties, we don't have an object instance, so objectPtr is nullptr
+    pesapi_callback_info__ callbackInfo{nullptr, nullptr,
+        PyTuple_Pack(1, value), 1, info->setterData, nullptr, nullptr, info->mapper};
+    callback(&g_pesapi_ffi, reinterpret_cast<pesapi_callback_info>(&callbackInfo));
+    if (callbackInfo.ex)
+    {
+        PyErr_SetString(PyExc_RuntimeError, callbackInfo.ex);
+        return -1;
+    }
+    return 0;
+};
+
+// Static method implementation for variables
+static PyObject* staticVariableGetter(PyObject* self, PyObject* args) {
+    auto* info = (CppObjectMapper::GetterSetterInfo*) PyCapsule_GetPointer(self, "GetterSetterInfo");
+    if (!info || !info->getter) {
+        PyErr_SetString(PyExc_RuntimeError, "Invalid getter info");
+        return nullptr;
+    }
+    
+    pesapi_scope__ scope(info->mapper);
+    pesapi_callback_info__ callbackInfo{nullptr, nullptr, nullptr, 0,
+        info->getterData, nullptr, nullptr, info->mapper};
+    info->getter(&g_pesapi_ffi, reinterpret_cast<pesapi_callback_info>(&callbackInfo));
+    
+    if (callbackInfo.ex) {
+        PyErr_SetString(PyExc_RuntimeError, callbackInfo.ex);
+        return nullptr;
+    }
+    if (callbackInfo.res) {
+        Py_INCREF(callbackInfo.res);
+        return callbackInfo.res;
+    }
+    Py_RETURN_NONE;
+}
+
+static PyObject* staticVariableSetter(PyObject* self, PyObject* args) {
+    auto* info = (CppObjectMapper::GetterSetterInfo*) PyCapsule_GetPointer(self, "GetterSetterInfo");
+    if (!info || !info->setter) {
+        PyErr_SetString(PyExc_RuntimeError, "Invalid setter info");
+        return nullptr;
+    }
+    
+    pesapi_scope__ scope(info->mapper);
+    pesapi_callback_info__ callbackInfo{nullptr, nullptr, args, PyTuple_Size(args),
+        info->setterData, nullptr, nullptr, info->mapper};
+    info->setter(&g_pesapi_ffi, reinterpret_cast<pesapi_callback_info>(&callbackInfo));
+    
+    if (callbackInfo.ex) {
+        PyErr_SetString(PyExc_RuntimeError, callbackInfo.ex);
+        return nullptr;
+    }
+    
+    Py_RETURN_NONE;
+}
+
+void CppObjectMapper::InitVariable(puerts::ScriptPropertyInfo* PropInfo, PyObject* Obj)
+{
+    auto info = (GetterSetterInfo*) PyMem_Malloc(sizeof(GetterSetterInfo));
+    info->getter = PropInfo->Getter;
+    info->setter = PropInfo->Setter;
+    info->getterData = PropInfo->GetterData;
+    info->setterData = PropInfo->SetterData;
+    info->mapper = this;
+
+    PyObject* capsule = PyCapsule_New(info, "GetterSetterInfo",
+        [](PyObject* capsule) {
+            GetterSetterInfo* info = reinterpret_cast<GetterSetterInfo*>(PyCapsule_GetPointer(capsule, "GetterSetterInfo"));
+            if (info) {
+                PyMem_Free(info);
+            }
+        });
+    
+    if (!capsule) {
+        PyMem_Free(info);
+        return;
+    }
+
+    // Create getter method if getter exists
+    if (PropInfo->Getter) {
+        PyMethodDef* getterMethodDef = (PyMethodDef*) PyMem_Malloc(sizeof(PyMethodDef));
+        char* getterName = (char*) PyMem_Malloc(strlen(PropInfo->Name) + 5); // "get_" + name + '\0'
+        sprintf(getterName, "get_%s", PropInfo->Name);
+        
+        getterMethodDef->ml_name = getterName;
+        getterMethodDef->ml_meth = staticVariableGetter;
+        getterMethodDef->ml_flags = METH_NOARGS;
+        getterMethodDef->ml_doc = "Static variable getter";
+        
+        PyObject* getterFunc = PyCFunction_New(getterMethodDef, capsule);
+        if (getterFunc) {
+            PyObject_SetAttrString(Obj, getterName, getterFunc);
+            Py_DECREF(getterFunc);
+        }
+    }
+
+    // Create setter method if setter exists
+    if (PropInfo->Setter) {
+        PyMethodDef* setterMethodDef = (PyMethodDef*) PyMem_Malloc(sizeof(PyMethodDef));
+        char* setterName = (char*) PyMem_Malloc(strlen(PropInfo->Name) + 5); // "set_" + name + '\0'
+        sprintf(setterName, "set_%s", PropInfo->Name);
+        
+        setterMethodDef->ml_name = setterName;
+        setterMethodDef->ml_meth = staticVariableSetter;
+        setterMethodDef->ml_flags = METH_VARARGS;
+        setterMethodDef->ml_doc = "Static variable setter";
+        
+        PyObject* setterFunc = PyCFunction_New(setterMethodDef, capsule);
+        if (setterFunc) {
+            PyObject_SetAttrString(Obj, setterName, setterFunc);
+            Py_DECREF(setterFunc);
+        }
+    }
+    
+    Py_DECREF(capsule);
+}
+
+typedef struct {
+    PyObject_HEAD
+    const puerts::ScriptClassDefinition* classDefinition;
+    CppObjectMapper* mapper;
+} ContextObj;
+
+static void ContextObj_dealloc(ContextObj* self) {
+    Py_TYPE(self)->tp_free((PyObject*)self);
+}
+
+static PyTypeObject Context_Type = {
+    PyVarObject_HEAD_INIT(NULL, 0)
+    "bridge._Context",              /* tp_name */
+    sizeof(ContextObj),             /* tp_basicsize */
+    0,                             /* tp_itemsize */
+    (destructor)ContextObj_dealloc, /* tp_dealloc */
+    0,                             /* tp_vectorcall_offset */
+    0,                             /* tp_getattr */
+    0,                             /* tp_setattr */
+    0,                             /* tp_as_async */
+    0,                             /* tp_repr */
+    0,                             /* tp_as_number */
+    0,                             /* tp_as_sequence */
+    0,                             /* tp_as_mapping */
+    0,                             /* tp_hash */
+    0,                             /* tp_call */
+    0,                             /* tp_str */
+    0,                             /* tp_getattro */
+    0,                             /* tp_setattro */
+    0,                             /* tp_as_buffer */
+    Py_TPFLAGS_DEFAULT,            /* tp_flags */
+    "Internal context holder",     /* tp_doc */
+    0,                             /* tp_traverse */
+    0,                             /* tp_clear */
+    0,                             /* tp_richcompare */
+    0,                             /* tp_weaklistoffset */
+    0,                             /* tp_iter */
+    0,                             /* tp_iternext */
+    0,                             /* tp_methods */
+    0,                             /* tp_members */
+    0,                             /* tp_getset */
+};
+
+static int DynObj_init(DynObj* self, PyObject* args, PyObject* kwargs) {
+    return 0;
+}
+
+static ContextObj* GetContextObj(PyTypeObject* type) {
+    PyObject* ctx = PyObject_GetAttrString((PyObject*)type, CTX_ATTR_NAME);
+    if (!ctx) return nullptr;
+    if (!PyObject_TypeCheck(ctx, &Context_Type)) {
+        Py_DECREF(ctx);
+        PyErr_SetString(PyExc_RuntimeError, "Invalid context object type");
+        return nullptr;
+    }
+    return (ContextObj*)ctx;
+}
+
+static void DynObj_dealloc(DynObj* self) {
+    self->mapper->RemoveFromCache(self->classDefinition, self->objectPtr);
+    if (self->classDefinition && self->classDefinition->Finalize && self->objectPtr && self->mapper) {
+        self->classDefinition->Finalize(&g_pesapi_ffi, (void*)self->objectPtr, self->classDefinition->Data, (void*)(self->mapper->GetEnvPrivate()));
+    }
+    Py_TYPE(self)->tp_free((PyObject*)self);
+}
+
+static PyObject* DynObj_new(PyTypeObject* type, PyObject* args, PyObject* kwargs) {
+    DynObj* self = (DynObj*)type->tp_alloc(type, 0);
+    if (!self) return NULL;
+
+    ContextObj* ctx = GetContextObj(type);
+    if (!ctx) {
+        Py_DECREF(self);
+        return NULL;
+    }
+
+    self->classDefinition = ctx->classDefinition;
+    self->mapper = ctx->mapper;
+    Py_DECREF(ctx);
+    
+    if (!self->classDefinition || !self->classDefinition->Initialize) {
+        PyErr_SetString(PyExc_RuntimeError, "Invalid class definition or Initialize function");
+        Py_DECREF(self);
+        return NULL;
+    }
+    
+    pesapi_callback_info__ callbackInfo  { nullptr, self->classDefinition->TypeId, args, PyTuple_Size(args), self->classDefinition->Data, nullptr, nullptr, self->mapper };
+    void* ptr = self->classDefinition->Initialize(&g_pesapi_ffi, reinterpret_cast<pesapi_callback_info>(&callbackInfo));
+    if (callbackInfo.ex)
+    {
+        PyErr_SetString(PyExc_RuntimeError, callbackInfo.ex);
+        Py_DECREF(self);
+        return NULL;
+    }
+    self->mapper->BindAndAddToCache(self->classDefinition, ptr, (PyObject*)self, true);
+    self->objectPtr = ptr;
+
+    return (PyObject*)self;
+}
+
+static PyObject* DynObj_getattro(PyObject* self, PyObject* name) {
+    DynObj* dynObj = (DynObj*)self;
+    
+    // First try to get attribute from the type's dictionary
+    PyObject* result = PyObject_GenericGetAttr(self, name);
+    if (result != NULL) {
+        return result;
+    }
+    
+    // Clear the AttributeError from PyObject_GenericGetAttr
+    PyErr_Clear();
+
+    const char* attrName = PyUnicode_AsUTF8(name);
+    if (attrName) {
+        auto* funcInfo = dynObj->mapper->FindFuncInfo(dynObj->classDefinition, attrName);
+        if (funcInfo) return dynObj->mapper->MakeFunction(funcInfo, dynObj);
+    }
+    
+    // If still not found, raise AttributeError
+    PyErr_Format(PyExc_AttributeError, "'%.50s' object has no attribute '%.400s'",
+                 Py_TYPE(self)->tp_name, PyUnicode_AsUTF8(name));
+    return nullptr;
+}
+
+//新增CallMethod
+static PyObject* DynObj_call_method(PyObject* self, PyObject* args)
+{
+    //思路是从 Python 传入的方法名和方法参数，找到对应的C++方法并调用，最终返回结果给Python 
+    DynObj* dynObj = (DynObj*)self;
+    const char* methodName;
+    PyObject* pyArgs;
+
+    if (!PyArg_ParseTuple(args, "sO", &methodName, &pyArgs))
+        return nullptr;
+    if (!PyTuple_Check(pyArgs)) {
+        PyErr_SetString(PyExc_TypeError, "2nd arg must be tuple");
+        return nullptr;
+    }
+
+    auto* funcInfo = dynObj->mapper->FindFuncInfo(dynObj->classDefinition, methodName);
+    if (!funcInfo) {
+        PyErr_Format(PyExc_AttributeError, "method '%s' not found", methodName);
+        return nullptr;
+    }
+
+     pesapi_callback_info__ cbinfo{
+        dynObj->objectPtr,
+        dynObj->classDefinition->TypeId,
+        pyArgs,
+        (int)PyTuple_Size(pyArgs),
+        funcInfo->Data,
+        nullptr,
+        nullptr,
+        dynObj->mapper
+    };
+
+    funcInfo->Callback(&g_pesapi_ffi, reinterpret_cast<pesapi_callback_info>(&cbinfo));
+
+    if (cbinfo.ex) {
+    PyErr_SetString(PyExc_RuntimeError, cbinfo.ex);
+    return nullptr;
+    }
+    if (cbinfo.res) {
+        Py_INCREF(cbinfo.res);
+        return cbinfo.res;
+    }
+    Py_RETURN_NONE;
+}
+
+static PyMethodDef DynObj_methods[] = {
+    {"call_method", (PyCFunction)DynObj_call_method, METH_VARARGS,
+    "call_method(name, args_tuple) -> result"},
+    {NULL, NULL, 0, NULL}
+};  
+
+static PyMemberDef DynObj_members[] = {
+    // 如需将实例级指针只读暴露给 Python，可用 capsule/整数方式封装再写 getter
+    {NULL}
+};
+
+static PyType_Slot DynType_slots[] = {
+    {Py_tp_new,      (void*)DynObj_new},
+    {Py_tp_dealloc,  (void*)DynObj_dealloc},
+    {Py_tp_init,     (void*)DynObj_init},
+    {Py_tp_getattro, (void*)DynObj_getattro},
+    {Py_tp_methods,  (void*)DynObj_methods},
+    {Py_tp_members,  (void*)DynObj_members},
+    {0, 0}
+};
+
+static PyType_Spec DynType_spec = {
+    .name = "NativeClass",
+    .basicsize = sizeof(DynObj),
+    .itemsize = 0,
+    .flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HEAPTYPE,
+    .slots = DynType_slots
+};
+
+puerts::ScriptFunctionInfo* CppObjectMapper::FindFuncInfo(const puerts::ScriptClassDefinition* cls,const eastl::basic_string<char,eastl::allocator_malloc>& name)
+{
+    auto it_cache = MethodMetaCache.find(cls);
+    MethodMap* cache = nullptr;
+    
+    if (it_cache != MethodMetaCache.end()) {
+        cache = it_cache->second;
+    } else {
+        // Use malloc + placement new to construct the inner map
+        void* memory = malloc(sizeof(MethodMap));
+        if (!memory) return nullptr;
+        cache = new(memory) MethodMap();
+        MethodMetaCache[cls] = cache;
+    }
+    
+    auto it = cache->find(name);
+    if (it != cache->end()) return it->second;
+
+    if (cls && cls->Methods) {
+        puerts::ScriptFunctionInfo* info = cls->Methods;
+        while (info && info->Name) {
+            (*cache)[info->Name] = info;
+            if (name == info->Name) return info;
+            ++info;
+        }
+    }
+    if (cls && cls->SuperTypeId) {
+        return FindFuncInfo(puerts::LoadClassByID(registry, cls->SuperTypeId), name);
+    }
+    return nullptr;
+}
+
+
 PyObject* CppObjectMapper::FindOrCreateClass(const puerts::ScriptClassDefinition* ClassDefinition)
 {
     auto it = TypeIdToFunctionMap.find(ClassDefinition->TypeId);
@@ -147,7 +768,65 @@ PyObject* CppObjectMapper::FindOrCreateClass(const puerts::ScriptClassDefinition
         return cls;
     }
 
-    return nullptr;
+    PyType_Spec spec = DynType_spec;
+    char* typeName = (char*) PyMem_Malloc(strlen(ClassDefinition->ScriptName) + 10); // "builtins." + name + '\0'
+    sprintf(typeName, "builtins.%s", ClassDefinition->ScriptName);
+    spec.name = typeName;
+    spec.flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_HEAPTYPE | Py_TPFLAGS_BASETYPE;
+
+    PyObject* type_obj = nullptr;
+    if (ClassDefinition->SuperTypeId)
+    {
+        PyObject* bases = PyTuple_Pack(1, FindOrCreateClass(puerts::LoadClassByID(registry, ClassDefinition->SuperTypeId)));
+        type_obj = PyType_FromSpecWithBases(&spec, bases);
+        Py_DECREF(bases);
+    }
+    else 
+    {
+        type_obj = PyType_FromSpec(&spec);
+    }
+    PyHeapTypeObject* type = (PyHeapTypeObject*)type_obj;
+    if (!type_obj) return NULL;
+
+
+    ContextObj* ctx = (ContextObj*)PyObject_New(ContextObj, &Context_Type);
+    if (!ctx) {
+        Py_DECREF(type_obj);
+        return NULL;
+    }
+
+    ctx->classDefinition = ClassDefinition;
+    ctx->mapper = this;
+    if (PyObject_SetAttrString(type_obj, CTX_ATTR_NAME, (PyObject*)ctx) < 0) {
+        Py_DECREF(ctx);
+        Py_DECREF(type_obj);
+        return NULL;
+    }
+    Py_DECREF(ctx);
+
+    puerts::ScriptPropertyInfo* PropertyInfo = ClassDefinition->Properties;
+    while (PropertyInfo && PropertyInfo->Name)
+    {
+        InitProperty(PropertyInfo, type_obj);
+        ++PropertyInfo;
+    }
+
+    PropertyInfo = ClassDefinition->Variables;
+    while (PropertyInfo && PropertyInfo->Name)
+    {
+        InitVariable(PropertyInfo, type_obj);
+        ++PropertyInfo;
+    }
+
+    puerts::ScriptFunctionInfo* FunctionInfo = ClassDefinition->Functions;
+    while (FunctionInfo && FunctionInfo->Name && FunctionInfo->Callback)
+    {
+        PyObject_SetAttrString(type_obj, FunctionInfo->Name, MakeFunction(FunctionInfo));
+        ++FunctionInfo;
+    }
+
+    TypeIdToFunctionMap[ClassDefinition->TypeId] = type_obj;
+    return type_obj;
 }
 
 PyObject* CppObjectMapper::FindOrCreateClassByID(const void* typeId)
@@ -181,105 +860,100 @@ PyObject* CppObjectMapper::findClassByName(PyObject* this_val, int argc, PyObjec
     }
 }
 
-void CppObjectMapper::Initialize(PyInterpreterState* State)
+void CppObjectMapper::Initialize(PyThreadState *InThreadState)
 {
-    this->state = State;
-    auto dict = PyInterpreterState_GetDict(state);
-    PyDict_SetItemOpaqueString(dict, "CppObjectMapper", this);
+    threadState = InThreadState;
+    if (!threadState) {
+        return;
+    }
+    
+    PyThreadState_Swap(threadState);
+    
+    // Ensure __main__ module exists
+    PyObject* main_module = PyImport_AddModule("__main__");
+    if (!main_module) {
+        PyErr_Clear();
+        return;
+    }
+    
+    if (PyType_Ready(&Context_Type) < 0) 
+    {
+        PyErr_Clear();
+        return;
+    }
+    
+    if (PyType_Ready(&PyMethodObject_Type) < 0) 
+    {
+        PyErr_Clear();
+        return;
+    }
+    
+
 
     PtrClassDef.TypeId = &PtrClassDef;
     PtrClassDef.ScriptName = "__Pointer";
-
-    /*auto mapperSelf = PyCapsule_New(this, nullptr, nullptr);
-
-    PyMethodDef methods_def = {"findClassByName",
-        [](PyObject* self, PyObject* args) -> PyObject*
-        {
-            auto _mapper = static_cast<CppObjectMapper*>(PyCapsule_GetPointer(self, nullptr));
-            PyObject* this_val = self;
-            Py_ssize_t argc_ssize = PyTuple_Size(args);
-            if (argc_ssize < 0)
-            {
-                return nullptr;
-            }
-            auto** argv = (PyObject**) PyMem_Malloc(sizeof(PyObject*) * (size_t) argc_ssize);
-            for (Py_ssize_t i = 0; i < argc_ssize; ++i)
-            {
-                argv[i] = PyTuple_GetItem(args, i);
-            }
-            PyObject* ret = _mapper->findClassByName(this_val, (int) argc_ssize, argv);
-            PyMem_Free(argv);
-            return ret;
-        },
-        METH_VARARGS};
-
-    auto Func = PyCFunction_New(&methods_def, mapperSelf);
-
-    auto M = PyImport_AddModule("__main__");
-    auto G = PyModule_GetDict(M);
-
-    PyDict_SetItemString(G, "findClassByName", Func);*/
 }
 
 void CppObjectMapper::Cleanup()
 {
+    PyThreadState_Swap(threadState);
     for (auto& kv : TypeIdToFunctionMap)
     {
-        PyObject_GC_Del(kv.second);
+        Py_DecRef(kv.second);
     }
 
     for (auto& obj : StrongRefObjects)
     {
-        PyObject_GC_Del(obj);
+        Py_DecRef(obj);
+    }
+
+    // Clean up MethodMetaCache - call destructor and free memory for each inner map
+    for (auto& kv : MethodMetaCache)
+    {
+        if (kv.second) {
+            kv.second->~MethodMap();  // Call destructor
+            free(kv.second);          // Free memory
+        }
     }
 
     StrongRefObjects.clear();
     CDataCache.clear();
     TypeIdToFunctionMap.clear();
+    MethodMetaCache.clear();
 }
 }    // namespace pythonimpl
 }    // namespace pesapi
 
 pesapi_env_ref create_py_env()
 {
-    Py_Initialize();
-
-    // For debug
-    /*PyRun_SimpleString(
-        "import sys, traceback, faulthandler, tracemalloc, signal, logging, gc\n"
-        //"logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)s %(message)s')\n"
-        //"faulthandler.enable()\n"
-        //"tracemalloc.start()\n"
-        //"def tracefunc(frame, event, arg):\n"
-        //"    co = frame.f_code\n"
-        //"    print(f'TRACE {event} {co.co_filename}:{frame.f_lineno} {co.co_name}')\n"
-        //"    return tracefunc\n"
-        //"sys.settrace(tracefunc)\n"
-        "gc.set_debug(gc.DEBUG_UNCOLLECTABLE | gc.DEBUG_SAVEALL | gc.DEBUG_STATS)\n");*/
-
     auto* mapper = reinterpret_cast<pesapi::pythonimpl::CppObjectMapper*>(malloc(sizeof(pesapi::pythonimpl::CppObjectMapper)));
-    if (mapper)
+    if (!mapper)
     {
-        memset(mapper, 0, sizeof(pesapi::pythonimpl::CppObjectMapper));
-        new (mapper) pesapi::pythonimpl::CppObjectMapper();
-        mapper->Initialize(PyInterpreterState_Get());
-        return pesapi::pythonimpl::g_pesapi_ffi.create_env_ref(reinterpret_cast<pesapi_env>(PyInterpreterState_Get()));
+        return nullptr;
     }
-    return nullptr;
+    
+    memset(mapper, 0, sizeof(pesapi::pythonimpl::CppObjectMapper));
+    PyThreadState *threadState = Py_NewInterpreter();
+    if (!threadState) {
+        free(mapper);
+        return nullptr;
+    }
+    
+    new (mapper) pesapi::pythonimpl::CppObjectMapper();
+    mapper->Initialize(threadState);
+    
+    return pesapi::pythonimpl::g_pesapi_ffi.create_env_ref(reinterpret_cast<pesapi_env>(mapper));
 }
 
 void destroy_py_env(pesapi_env_ref env_ref)
 {
-    auto state = reinterpret_cast<PyInterpreterState*>(pesapi::pythonimpl::g_pesapi_ffi.get_env_from_ref(env_ref));
-    auto mapper = pesapi::pythonimpl::CppObjectMapper::Get(state);
+    auto mapper = reinterpret_cast<pesapi::pythonimpl::CppObjectMapper*>(pesapi::pythonimpl::g_pesapi_ffi.get_env_from_ref(env_ref));
     get_papi_ffi()->release_env_ref(env_ref);
-    mapper->Cleanup();
     if (mapper)
     {
         mapper->Cleanup();
         free(mapper);
     }
-    Py_Finalize();    // Finalize Python interpreter
 }
 
 pesapi_ffi* get_papi_ffi()

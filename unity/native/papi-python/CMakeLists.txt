@@ -39,6 +39,7 @@ file(GLOB_RECURSE EASTL_HEADS "../EASTL/include/EASTL/**.h")
 set(PAPI_SRC
         source/PapiPythonImpl.cpp
         source/CppObjectMapperPython.cpp
+        source/PapiExport.cpp
 )
 
 add_library(PapiPython SHARED ${PAPI_SRC})
@@ -89,6 +90,13 @@ target_link_libraries(papi_py_test
         PuertsCore
         PapiPython
         GTest::gtest_main
+)
+
+add_custom_command(TARGET papi_py_test POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        $<TARGET_FILE:PuertsCore>
+        $<TARGET_FILE_DIR:${PROJECT_NAME}>
+        COMMENT "Copying PuertsCore.dll to output directory"
 )
 
 target_include_directories(papi_py_test PRIVATE

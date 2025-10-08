@@ -68,6 +68,8 @@ namespace Puerts
             // override print
             scriptEnv.Eval(@"
             local tudb = scriptEnv:GetTypeByString('UnityEngine.Debug')
+            local loadType = loadType
+            local scriptEnv = scriptEnv
             
             local outputStr
             if tudb then
@@ -91,12 +93,44 @@ namespace Puerts
             local rawget = rawget
             local setmetatable = setmetatable
             local loadType = loadType
-            local function import_type(full_name)
-                local type = scriptEnv:GetTypeByString(full_name)
+            local scriptEnv = scriptEnv
+            local GET_MEMBER_FLAGS = nil
+            local function process_nested_types(type, cls, ...)
+                if not GET_MEMBER_FLAGS then
+                    local BindingFlags = loadType(scriptEnv:GetTypeByString('System.Reflection.BindingFlags'))
+                    GET_MEMBER_FLAGS = BindingFlags.DeclaredOnly | BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public;
+                end
+                local nts = type:GetNestedTypes(GET_MEMBER_FLAGS)
+                if nts and nts.Length > 0 then
+                    for i = 0, nts.Length -1 do
+                        local nt = nts:get_Item(i)
+                        if nt.IsGenericTypeDefinition then
+                            local n = select('#', ...)
+                            if n == 0 then
+                                nt = nil
+                            end
+                            nt = nt:MakeGenericType(...)
+                        end
+                        if nt then
+                            local nc = loadType(nt)
+                            rawset(nc, '__p_innerType', nt)
+                            rawset(cls, nt.Name, nc)
+                        end
+                    end
+                end
+            end
+            local function cs_type_to_lua(type, ...)
                 if not type then return nil end
                 local cls = loadType(type)
+                if not cls then return nil end
                 rawset(cls, '__p_innerType', type)
+                process_nested_types(type, cls, ...)
                 return cls
+            end
+            _G.cs_type_to_lua = cs_type_to_lua
+            local function import_type(full_name)
+                local type = scriptEnv:GetTypeByString(full_name)
+                return cs_type_to_lua(type)
             end
             local function import_generic_type(full_name)
                 local type = scriptEnv:GetTypeByString(full_name)
@@ -172,6 +206,8 @@ namespace Puerts
 
             scriptEnv.Eval(@"
             local loadType = loadType
+            local scriptEnv = scriptEnv
+            local cs_type_to_lua = _G.cs_type_to_lua
             local puerts = require('puerts')
             local CS = require('csharp')
             local unpack = unpack or table.unpack
@@ -193,7 +229,7 @@ namespace Puerts
                     if not arg then error('invalid Type for generic arguments '.. i) end
                     table.insert(args, arg)
                 end
-                return loadType(cs_type:MakeGenericType(unpack(args)))
+                return cs_type_to_lua(cs_type:MakeGenericType(unpack(args)), unpack(args))
             end
 
             function puerts.genericMethod(l_type, method_name, ...)
@@ -233,6 +269,13 @@ namespace Puerts
             function puerts.unref(r) return r[1] end
             function puerts.setref(r, x) r[1] = x end
             
+            ");
+
+            // clear global
+            scriptEnv.Eval(@"
+            loadType = nil
+            scriptEnv = nil
+            cs_type_to_lua = nil
             ");
         }
     }

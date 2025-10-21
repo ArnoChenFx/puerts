@@ -54,11 +54,25 @@ extern "C" {
         get_papi_ffi()->release_env_ref(env_ref);
         if (mapper)
         {
-            mapper->Cleanup();
+            PyThreadState *threadState = mapper->threadState;
+            if (threadState)
+            {
+                PyThreadState* prevThreadState = PyThreadState_Swap(threadState);
+                
+                mapper->Cleanup();
+                
+                Py_EndInterpreter(threadState);
+                
+                if (prevThreadState && prevThreadState != threadState) {
+                    PyThreadState_Swap(prevThreadState);
+                }
+            }
+            else
+            {
+                mapper->Cleanup();
+            }
             free(mapper);
         }
-
-        Py_Finalize();
     }
 
     PESAPI_MODULE_EXPORT void RunGC(pesapi_env_ref env_ref)

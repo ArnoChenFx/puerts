@@ -312,6 +312,11 @@ namespace Puerts
                 return typeId != 0 && typeof(TValueType).IsAssignableFrom(TypeRegister.Instance.FindTypeById(typeId));
             }
 
+            public static ScriptObject ScriptToNative_ScriptObject_CheckObject(IntPtr apis, IntPtr env, IntPtr value)
+            {
+                return PuertsNative.pesapi_is_object(apis, env, value) ? ScriptToNative_ScriptObject(apis, env, value) : null;
+            }
+
             public static ScriptObject ScriptToNative_ScriptObject(IntPtr apis, IntPtr env, IntPtr value)
             {
                 IntPtr valueRef;
@@ -744,6 +749,11 @@ namespace Puerts
 
         private static Expression scriptToNative(CompileContext context, Type type, Expression value)
         {
+            Type underlyingType = Nullable.GetUnderlyingType(type);
+            if (underlyingType != null)
+            {
+                return Expression.Condition(callPApi(context.Apis, "is_null", context.Env, value), Expression.Constant(null, type), Expression.Convert(scriptToNative(context, underlyingType, value), type));
+            }
             Type tranType = type.IsEnum ? Enum.GetUnderlyingType(type) : type;
             Expression ret = null;
             if (tranType == typeof(int))
@@ -811,7 +821,7 @@ namespace Puerts
             }
             else if (typeof(ScriptObject) == tranType)
             {
-                var scriptToNativeMethod = Helpper.GetMethod(nameof(Helpper.ScriptToNative_ScriptObject));
+                var scriptToNativeMethod = Helpper.GetMethod(nameof(Helpper.ScriptToNative_ScriptObject_CheckObject));
                 ret = Expression.Call(scriptToNativeMethod, context.Apis, context.Env, value);
             }
             else if (typeof(Delegate).IsAssignableFrom(tranType) && tranType != typeof(Delegate) && tranType != typeof(MulticastDelegate))
@@ -936,7 +946,9 @@ namespace Puerts
                 if (parameterInfo.HasDefaultValue)
                 {
                     return Expression.Condition(callPApi(context.Apis, "is_undefined", context.Env, value),
-                        parameterInfo.DefaultValue == null && parameterInfo.ParameterType.IsValueType ? Expression.Default(parameterInfo.ParameterType) : Expression.Constant(parameterInfo.DefaultValue, parameterInfo.ParameterType), res);
+                        (parameterInfo.DefaultValue == null && parameterInfo.ParameterType.IsValueType) 
+                        ? ((Expression)Expression.Default(parameterInfo.ParameterType)) 
+                        : ((Expression)Expression.Constant(parameterInfo.DefaultValue, parameterInfo.ParameterType)), res);
                 }
                 else
                 {
@@ -1107,6 +1119,11 @@ namespace Puerts
                 Expression.AndAlso(left, right));
         }
 
+        private static Expression buildAndExpression(params Expression[] conditions)
+        {
+            return buildAndExpression((IEnumerable<Expression>)conditions);
+        }
+
         private static Expression buildArgumentsLengthCheck(MethodBase methodBase, bool isExtensionMethod, ParameterExpression jsArgc)
         {
             bool hasDefault = false;
@@ -1133,7 +1150,18 @@ namespace Puerts
 
             expectArgc -=  isExtensionMethod ? 1 : 0;
 
-            return (!hasDefault && !hasParams) ? Expression.Equal(jsArgc, Expression.Constant(expectArgc)) : Expression.GreaterThanOrEqual(jsArgc, Expression.Constant(expectArgc));
+            if (hasParams)
+            {
+                return Expression.GreaterThanOrEqual(jsArgc, Expression.Constant(expectArgc));
+            }
+            else if (hasDefault)
+            {
+                return buildAndExpression(Expression.GreaterThanOrEqual(jsArgc, Expression.Constant(expectArgc)), Expression.LessThanOrEqual(jsArgc, Expression.Constant(ps.Length)));
+            }
+            else
+            {
+                return Expression.Equal(jsArgc, Expression.Constant(expectArgc));
+            }
 
         }
 

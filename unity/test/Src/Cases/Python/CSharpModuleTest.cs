@@ -1,4 +1,4 @@
-#if !UNITY_WEBGL
+#if !UNITY_WEBGL && !UNITY_IOS && !UNITY_ANDROID || FORCE_TEST_PYTHON
 using NUnit.Framework;
 using System;
 using System.Reflection;
@@ -50,7 +50,6 @@ namespace Puerts.UnitTest
             var pythonEnv = new ScriptEnv(new BackendPython());
             pythonEnv.Eval(@"
 exec('''
-CS = CSharp()
 print('Hello from Python console')
 ''')
 ");
@@ -63,7 +62,6 @@ print('Hello from Python console')
             var pythonEnv = new ScriptEnv(new BackendPython());
             pythonEnv.Eval(@"
 exec('''
-# Empty Python module test
 empty = {}
 ''')
 ");
@@ -81,12 +79,79 @@ empty = {}
             var pythonEnv = new ScriptEnv(new BackendPython());
             var result = pythonEnv.Eval<int>(@"
 (lambda: (
-    CS := CSharp(),
-    inner := CS.load_type('Puerts.UnitTest.CSharpModuleTestPython+Inner'),
+    inner := puerts.load_type('Puerts.UnitTest.CSharpModuleTestPython+Inner'),
     inner.get_i()
 )[-1])()
 ");
             Assert.AreEqual(3, result);
+            pythonEnv.Dispose();
+        }
+
+        [Test]
+        public void NameSpaceAccessTest()
+        {
+            var pythonEnv = new ScriptEnv(new BackendPython());
+            // 1 level namespace
+            pythonEnv.Eval(@"
+exec('''
+import System.Console
+''')
+");
+            // 2 level namespace
+            pythonEnv.Eval(@"
+exec('''
+import System.Diagnostics
+''')
+");
+            // 2 level namespace with class
+            pythonEnv.Eval(@"
+exec('''
+import System.Diagnostics.Debug
+''')
+");
+            // 2 level namespace with NameSpaceProxy Access
+            pythonEnv.Eval(@"
+exec('''
+import System.Diagnostics
+System.Diagnostics.Debug.WriteLine('Test')
+''')
+");
+
+            // 2 level namespace with NameSpaceProxy Access
+            pythonEnv.Eval(@"
+exec('''
+import System.Diagnostics as Diagnostics
+Diagnostics.Debug.WriteLine('Test')
+''')
+");
+
+            try
+            {
+                pythonEnv.Eval(@"
+exec('''
+import System.Diagnostics
+System.Diagnostics.Hello
+''')
+");
+            }
+            catch (Exception e)
+            {
+                Assert.True(e.Message.Contains("ModuleNotFoundError: No namespace or type named System.Diagnostics.Hello"));
+            }
+
+            try
+            {
+                pythonEnv.Eval(@"
+exec('''
+import System.Diagnostics as Diagnostics
+Diagnostics.Hello
+''')
+");
+            }
+            catch (Exception e)
+            {
+                Assert.True(e.Message.Contains("ModuleNotFoundError: No namespace or type named System.Diagnostics.Hello"));
+            }
             pythonEnv.Dispose();
         }
         /*
@@ -110,15 +175,12 @@ exec('''
 CS = CSharp()
 obj = CS.load_type('Puerts.UnitTest.GenericMethodTestPython')()
 
-# Test generic method calls
 Int32 = CS.load_type('System.Int32')
 String = CS.load_type('System.String')
 
-# Get generic method and call it
 cls = CS.load_type('Puerts.UnitTest.GenericMethodTestPython')
 methods = CS.load_type('Puerts.Utils').GetMethodAndOverrideMethodByName($1, 'Foo')
 
-# Find the Foo<A>() method
 for i in range(methods.Length):
     method = methods.GetValue(i)
     if method.GetParameters().Length == 0 and method.GetGenericArguments().Length == 1:
@@ -127,7 +189,6 @@ for i in range(methods.Length):
         assert result1 == 1, 'Generic method Foo<int>() should return 1'
         break
 
-# Find the Foo<A, B>() method
 for i in range(methods.Length):
     method = methods.GetValue(i)
     if method.GetParameters().Length == 0 and method.GetGenericArguments().Length == 2:

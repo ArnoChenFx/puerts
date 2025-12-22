@@ -244,6 +244,11 @@ namespace Puerts.UnitTest
             //UnityEngine.Debug.Log($"LogAppEvent: {logEvent}, valueToSum: {valueToSum}, res: {res}");
             return res;
         }
+        [UnityEngine.Scripting.Preserve]
+        public static uint FloatAsUInt(uint rewardId, bool needBackup = true)
+        {
+            return rewardId;
+        }
 
         [UnityEngine.Scripting.Preserve]
         public static float Value;
@@ -789,6 +794,140 @@ namespace Puerts.UnitTest
     {
         float IFoo.width => 125f; // Note the explicit interface `IFoo.`
     }
+
+    [UnityEngine.Scripting.Preserve]
+    public class BoxValueContainer
+    {
+        public object BoxedValue;
+
+        [UnityEngine.Scripting.Preserve]
+        public BoxValueContainer()
+        {
+            BoxedValue = 123;
+        }
+    }
+
+    [UnityEngine.Scripting.Preserve]
+    public struct StaticFieldStruct
+    {
+        [UnityEngine.Scripting.Preserve]
+        public float instanceField;
+    }
+
+    [UnityEngine.Scripting.Preserve]
+    public static class OnlyStaticFieldClass
+    {
+        [UnityEngine.Scripting.Preserve]
+        public static StaticFieldStruct staticFieldStruct;
+
+        [UnityEngine.Scripting.Preserve]
+        static OnlyStaticFieldClass()
+        {
+            staticFieldStruct = new StaticFieldStruct { instanceField = 3 };
+        }
+    }
+
+    public struct Struct2Field
+    {
+        public int X;
+        public int Y;
+    }
+
+    [UnityEngine.Scripting.Preserve]
+    public class ClassHasNullableField
+    {
+        [UnityEngine.Scripting.Preserve]
+        public ClassHasNullableField()
+        {
+            struct2Filed = new Struct2Field() { X = 10, Y = 20 };
+            nullableIntField = 100;
+        }
+        [UnityEngine.Scripting.Preserve]
+        public Struct2Field? struct2Filed;
+        [UnityEngine.Scripting.Preserve]
+        public int? nullableIntField;
+    }
+
+    [UnityEngine.Scripting.Preserve]
+    public class BaseWithVirtual
+    {
+        protected virtual bool VirtualMethod(bool f)
+        {
+            return f;
+        }
+
+        [UnityEngine.Scripting.Preserve]
+        public bool VirtualMethod()
+        {
+            return VirtualMethod(true);
+        }
+    }
+
+    [UnityEngine.Scripting.Preserve]
+    public class DerivedOverrideVirtual : BaseWithVirtual
+    {
+        [UnityEngine.Scripting.Preserve]
+        protected override bool VirtualMethod(bool f)
+        {
+            return f;
+        }
+    }
+
+    [UnityEngine.Scripting.Preserve]
+    public struct FieldStruct
+    {
+        public int b;
+        public int a;
+        public object obj;
+    }
+
+    [UnityEngine.Scripting.Preserve]
+    public class FieldClass
+    {
+        public static int ObjCount = 0;
+        public FieldClass()
+        {
+            ObjCount++;
+        }
+        ~FieldClass()
+        {
+            ObjCount--;
+        }
+    }
+
+    [UnityEngine.Scripting.Preserve]
+    public struct StructWithObjectField
+    {
+        public TestEnum testEnum;
+        public byte TabEnum;
+        public uint eqrdeq;
+        public int vaq;
+        public object obj;
+        public TestEnum gdfaqw;
+        public TestEnum ggdasq;
+    }
+
+    [UnityEngine.Scripting.Preserve]
+    public class FieldClass2
+    {
+        public static int ObjCount = 0;
+        public FieldClass2()
+        {
+            ObjCount++;
+        }
+        ~FieldClass2()
+        {
+            ObjCount--;
+        }
+    }
+
+    [UnityEngine.Scripting.Preserve]
+    public struct StructWithObjectFieldNested
+    {
+        public int abc;
+        public StructWithObjectField nested;
+    }
+
 
     [TestFixture]
     public class CrossLangTest
@@ -1530,6 +1669,7 @@ __PDUOTF;");
 #endif
         delegate bool PassScriptObject(ScriptObject obj);
 
+#if !UNITY_WEBGL || UNITY_EDITOR
         [Test]
         public void JsObjectCrossJsEnvs()
         {
@@ -1550,6 +1690,52 @@ __PDUOTF;");
             {
                 Assert.False(test2(jsObj1));
 			});
+        }
+		
+		[Test]
+        public void DisposeJsEnvJsObject()
+        {
+            var jsEnv1 = new JsEnv(UnitTestEnv.GetLoader());
+            jsEnv1.UsingFunc<ScriptObject, bool>();
+            var jsObj1 = jsEnv1.Eval<ScriptObject>("Object.create(null)");
+            var test1 = jsEnv1.Eval<PassScriptObject>("(obj) => !!obj");
+            Assert.True(test1(jsObj1));
+            jsEnv1.Dispose();
+            jsEnv1 = new JsEnv(UnitTestEnv.GetLoader());
+            jsEnv1.UsingFunc<ScriptObject, bool>();
+            test1 = jsEnv1.Eval<PassScriptObject>("(obj) => !!obj");
+			Assert.Catch(() =>
+            {
+                Assert.False(test1(jsObj1));
+			});
+        }
+#endif
+
+        [Test]
+        public void AutoConvertStringToNumber()
+        {
+            var jsEnv = UnitTestEnv.GetEnv();
+            var res = jsEnv.Eval<uint>(@"
+                (function() {
+                    const ConstructorOverloadFactory = CS.Puerts.UnitTest.ConstructorOverloadFactory;
+                    const obj = ConstructorOverloadFactory.Create(1, 1, '3001385');
+                    console.log('>>>>>>>>>>>>>>>>>>>>>>>>> obj.heroID: ' + obj.heroID)
+                    return obj.heroID
+                })()
+            ");
+            Assert.AreEqual(3001385u, res);
+        }
+
+        [Test]
+        public void PassBigIntToUInt()
+        {
+            var jsEnv = UnitTestEnv.GetEnv();
+            jsEnv.Eval(@"
+                (function() {
+                    const ConstructorOverloadFactory = CS.Puerts.UnitTest.ConstructorOverloadFactory;
+                    ConstructorOverloadFactory.Create(1, 1, 3001385n);
+                })()
+            ");
         }
 		
 		[Test]
@@ -1597,6 +1783,186 @@ __PDUOTF;");
             ");
             cb1(1, 2, 6, 3);
         }
+
+        [Test]
+        public void TestFloatAsUInt()
+        {
+            var jsEnv = UnitTestEnv.GetEnv();
+            jsEnv.Eval(@"
+                (function() {
+                    const ConstructorOverloadFactory = CS.Puerts.UnitTest.ConstructorOverloadFactory;
+                    const AssertAndPrint = CS.Puerts.UnitTest.TestHelper.AssertAndPrint;
+                    AssertAndPrint('TestFloatAsUInt check 1',  ConstructorOverloadFactory.FloatAsUInt(113.123, false) == 113);
+                })()
+            ");
+        }
+
+        [Test]
+        public void TestNegativeAsUInt()
+        {
+            var jsEnv = UnitTestEnv.GetEnv();
+            jsEnv.Eval(@"
+                (function() {
+                    const ConstructorOverloadFactory = CS.Puerts.UnitTest.ConstructorOverloadFactory;
+                    const AssertAndPrint = CS.Puerts.UnitTest.TestHelper.AssertAndPrint;
+                    const res = ConstructorOverloadFactory.FloatAsUInt(-1, false);
+                    AssertAndPrint(`TestNegativeAsUInt got ${ConstructorOverloadFactory.FloatAsUInt(-1, false)}`,   res == 4294967295 || res == 0); // depending on .net runtime
+                })()
+            ");
+        }
+
+        [Test]
+        public void TestVirtualCall()
+        {
+            var jsEnv = UnitTestEnv.GetEnv();
+            var res = jsEnv.Eval<string>(@"
+                (function() {
+                    const StringBuilder = CS.System.Text.StringBuilder;
+                    const sb = new StringBuilder();
+                    sb.Append('ToStringOverrideTest: 123');
+                    const res = CS.System.Object.prototype.ToString.call(sb);
+                    return res;
+                })()
+            ");
+            Assert.AreEqual("ToStringOverrideTest: 123", res);
+        }
+
+        [Test]
+        public void BoxValueTest()
+        {
+            
+            var jsEnv = UnitTestEnv.GetEnv();
+            jsEnv.Eval(@"
+                (function() {
+                    const BoxValueContainer = CS.Puerts.UnitTest.BoxValueContainer;
+                    const AssertAndPrint = CS.Puerts.UnitTest.TestHelper.AssertAndPrint;
+                    const obj = new BoxValueContainer();
+                    AssertAndPrint(`BoxValueTest value`,   obj.BoxedValue == 123);
+                    AssertAndPrint(`BoxValueTest type`,   typeof obj.BoxedValue == 'number');
+
+                    obj.BoxedValue = 999
+                    AssertAndPrint(`BoxValueTest changed value`,   obj.BoxedValue == 999);
+                    AssertAndPrint(`BoxValueTest changed type`,   typeof obj.BoxedValue == 'number');
+                })()
+            ");
+        }
+
+        [Test]
+        public void AccessOnlyStaticFieldClass()
+        {
+
+            var jsEnv = UnitTestEnv.GetEnv();
+            jsEnv.Eval(@"
+                (function() {
+                    const OnlyStaticFieldClass = CS.Puerts.UnitTest.OnlyStaticFieldClass;
+                    const AssertAndPrint = CS.Puerts.UnitTest.TestHelper.AssertAndPrint;
+                    AssertAndPrint(`OnlyStaticFieldClass.staticFieldStruct.instanceField`,  OnlyStaticFieldClass.staticFieldStruct.instanceField == 3);
+                })()
+            ");
+        }
+
+        [Test]
+        public void TestClassHasNullableField()
+        {
+            var jsEnv = UnitTestEnv.GetEnv();
+            jsEnv.Eval(@"
+                (function() {
+                    const ClassHasNullableField = CS.Puerts.UnitTest.ClassHasNullableField;
+                    const obj = new ClassHasNullableField();
+                    const AssertAndPrint = CS.Puerts.UnitTest.TestHelper.AssertAndPrint;
+                    AssertAndPrint('check obj.struct2Filed.X', obj.struct2Filed.X == 10);
+                    AssertAndPrint('check obj.struct2Filed.Y', obj.struct2Filed.Y == 20);
+                    AssertAndPrint('check obj.nullableIntField', obj.nullableIntField == 100);
+                    const s = obj.struct2Filed;
+                    s.X = 100;
+                    s.Y = 200;
+                    obj.struct2Filed = s;
+                    obj.nullableIntField = 500;
+                    console.log('after set ', obj.struct2Filed.X, obj.struct2Filed.Y, obj.nullableIntField);
+                    AssertAndPrint(`after set check obj.struct2Filed.X ${ obj.struct2Filed.X }`, obj.struct2Filed.X == 100);
+                    AssertAndPrint(`after set check obj.struct2Filed.Y ${ obj.struct2Filed.Y }`, obj.struct2Filed.Y == 200);
+                    AssertAndPrint(`after set check obj.nullableIntField ${ obj.nullableIntField }`, obj.nullableIntField == 500);
+                })()
+            ");
+        }
+
+        [Test]
+        public void TestDerivedOverrideVirtual()
+        {
+            var jsEnv = UnitTestEnv.GetEnv();
+            var res = jsEnv.Eval<bool>(@"
+                (function() {
+                    return new CS.Puerts.UnitTest.DerivedOverrideVirtual().VirtualMethod();
+                })()
+            ");
+            Assert.AreEqual(true, res);
+        }
+
+        // gc相关测试在webgl下不稳定，先去掉
+#if !UNITY_WEBGL || UNITY_EDITOR
+        [Test]
+        public void TestObjectFieldRefAStruct()
+        {
+            FieldClass.ObjCount = 0;
+            FieldClass2.ObjCount = 0;
+            var jsEnv = UnitTestEnv.GetEnv();
+            jsEnv.Eval("CS.Puerts.UnitTest.StructWithObjectField, CS.Puerts.UnitTest.FieldStruct, CS.Puerts.UnitTest.FieldClass");
+            var res = jsEnv.Eval<int>(@"
+                globalThis.__TestObjectFieldRefAStruct = new CS.Puerts.UnitTest.StructWithObjectField();
+                globalThis.__StructWithObjectFieldNested = new CS.Puerts.UnitTest.StructWithObjectFieldNested();
+                (function() {
+                    const o = new CS.Puerts.UnitTest.FieldStruct();
+                    o.a = 8766
+                    __TestObjectFieldRefAStruct.obj = o;
+                    const n =  __StructWithObjectFieldNested.nested; // valuetype is copy by value
+                    n.obj =  new CS.Puerts.UnitTest.FieldClass2();
+                    __StructWithObjectFieldNested.nested = n;
+                })()
+                __TestObjectFieldRefAStruct.obj.a;
+            ");
+
+            jsEnv.Backend.LowMemoryNotification();
+            Assert.AreEqual(8766, res);
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            jsEnv.Eval(@"
+                 (function() {
+                    for (let i = 0; i < 1000; i++) {
+                        const o = new CS.Puerts.UnitTest.FieldStruct();
+                        o.a = i
+                    }
+                 })()
+             ");
+            jsEnv.Backend.LowMemoryNotification();
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            
+
+            res = jsEnv.Eval<int>("__TestObjectFieldRefAStruct.obj.a;");
+            Assert.AreEqual(8766, res);
+
+            jsEnv.Eval("__TestObjectFieldRefAStruct.obj = new CS.Puerts.UnitTest.FieldClass()");
+            jsEnv.Backend.LowMemoryNotification();
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            TestHelper.AssertAndPrint("FieldClass", 1, FieldClass.ObjCount);
+            TestHelper.AssertAndPrint("FieldClass2", 1, FieldClass2.ObjCount);
+
+            jsEnv.Eval(@"
+                (function() {
+                    __TestObjectFieldRefAStruct.obj = null
+                    const n =  __StructWithObjectFieldNested.nested; // valuetype is copy by value
+                    n.obj =  null;
+                    __StructWithObjectFieldNested.nested = n;
+                })()
+            ");
+            jsEnv.Backend.LowMemoryNotification();
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            TestHelper.AssertAndPrint("FieldClass", 0, FieldClass.ObjCount);
+            TestHelper.AssertAndPrint("FieldClass2", 0, FieldClass2.ObjCount);
+        }
+#endif
 
     }
 }

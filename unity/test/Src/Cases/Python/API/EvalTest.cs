@@ -1,4 +1,4 @@
-#if !UNITY_WEBGL
+#if !UNITY_WEBGL && !UNITY_IOS && !UNITY_ANDROID || FORCE_TEST_PYTHON
 using NUnit.Framework;
 using System;
 
@@ -93,8 +93,7 @@ obj['nonexistent']()
             var pythonEnv = new ScriptEnv(new BackendPython());
             pythonEnv.Eval(@"
 exec('''
-CS = CSharp()
-TestHelper = CS.load_type('Puerts.UnitTest.TestHelper')
+import Puerts.UnitTest.TestHelper as TestHelper
 testHelper = TestHelper.GetInstance()
 testHelper.PassStr(None)
 testHelper.PassObj(None)

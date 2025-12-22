@@ -1,4 +1,4 @@
-#if !UNITY_WEBGL
+#if !UNITY_WEBGL && !UNITY_IOS && !UNITY_ANDROID || FORCE_TEST_PYTHON
 using System;
 using System.Collections.Generic;
 using NUnit.Framework;
@@ -15,8 +15,7 @@ namespace Puerts.UnitTest
 
             pythonEnv.Eval(@"
 exec('''
-CS = CSharp()
-deleteobj = CS.load_type('Puerts.UnitTest.DelegateTestClass')()
+deleteobj = puerts.load_type('Puerts.UnitTest.DelegateTestClass')()
 def callback(msg):
     global info
     info = msg

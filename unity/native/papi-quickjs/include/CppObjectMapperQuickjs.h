@@ -112,6 +112,15 @@ struct CppObjectMapper
             return false;
         }
    
+        // Use JS_GetOwnProperty to only check the current object, not the prototype chain
+        int ret = JS_GetOwnProperty(ctx, nullptr, val, privateDataKey);
+        if (ret <= 0)
+        {
+            // Property doesn't exist on this object or error occurred
+            *outPrr = nullptr;
+            return true;
+        }
+        
         JSValue data = JS_GetProperty(ctx, val, privateDataKey);
         if (JS_VALUE_GET_TAG(data) == JS_TAG_EXTERNAL)
         {
@@ -131,7 +140,10 @@ struct CppObjectMapper
         {
             return false;
         }
-        JS_SetProperty(ctx, val, privateDataKey, JS_MKPTR(JS_TAG_EXTERNAL, ptr));
+        // Use JS_DefinePropertyValue with non-enumerable flag to prevent for...in enumeration
+        // JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE (without JS_PROP_ENUMERABLE)
+        JS_DefinePropertyValue(ctx, val, privateDataKey, JS_MKPTR(JS_TAG_EXTERNAL, ptr), 
+                               JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE);
         return true;
     }
 

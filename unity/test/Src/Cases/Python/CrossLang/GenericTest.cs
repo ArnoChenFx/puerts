@@ -1,4 +1,4 @@
-#if !UNITY_WEBGL
+#if !UNITY_WEBGL && !UNITY_IOS && !UNITY_ANDROID || FORCE_TEST_PYTHON
 using NUnit.Framework;
 using System;
 using System.Runtime.InteropServices;
@@ -14,13 +14,12 @@ namespace Puerts.UnitTest
             var pythonEnv = new ScriptEnv(new BackendPython());
             var res = pythonEnv.Eval<int>(@"
 (lambda: (
-    CS := CSharp(),
-    ListInt := CS.load_type('System.Collections.Generic.List', 'System.Int32'),
+    ListInt := puerts.generic(puerts.load_type('System.Collections.Generic.List`1'), puerts.load_type('System.Int32')),
     ls := ListInt(),
     ls.Add(1),
     ls.Add(2),
     ls.Add(3),
-    CS.load_type('Puerts.UnitTest.GenericTestHelper').TestList(ls)
+    puerts.load_type('Puerts.UnitTest.GenericTestHelper').TestList(ls)
 )[-1])()
 ");
             Assert.AreEqual(res, 6);
@@ -62,12 +61,13 @@ namespace Puerts.UnitTest
             var pythonEnv = new ScriptEnv(new BackendPython());
             pythonEnv.Eval(@"
 exec('''
-CS = CSharp()
-ListInt = CS.load_type('System.Collections.Generic.List', 'System.Int32')
+import System.Collections.Generic.List__T1 as List
+import System
+ListInt = puerts.generic(List, System.Int32)
 ls = ListInt()
 ls.Add(1)
 ls.Add(2)
-result = CS.load_type('Puerts.UnitTest.GenericTestHelper').TestListRange(ls, 1)
+result = puerts.load_type('Puerts.UnitTest.GenericTestHelper').TestListRange(ls, 1)
 ''')
 ");
 
@@ -117,7 +117,6 @@ Utils = CS.load_type('Puerts.Utils')
 TypeExtensions = CS.load_type('Puerts.TypeExtensions')
 methods = Utils.GetMethodAndOverrideMethodByName($1, 'StaticGenericMethod')
 
-# Try to use invalid type argument (number instead of Type)
 for i in range(methods.Length):
     method = methods.GetValue(i)
     if method.GetParameters().Length == 0 and method.GetGenericArguments().Length == 1:
@@ -264,13 +263,11 @@ TypeExtensions = CS.load_type('Puerts.TypeExtensions')
 cls = TypeExtensions.GetType(GenericTestClass)
 methods = Utils.GetMethodAndOverrideMethodByName($1, 'StaticGenericMethod')
 
-# Collect all overloads
 overloads = []
 for i in range(methods.Length):
     method = methods.GetValue(i)
     overloads.append(method.MakeGenericMethod(Int32))
 
-# Test both overloads
 result1 = ''''
 result2 = ''''
 for method in overloads:

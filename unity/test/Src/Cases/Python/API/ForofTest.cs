@@ -1,4 +1,4 @@
-#if !UNITY_WEBGL
+#if !UNITY_WEBGL && !UNITY_IOS && !UNITY_ANDROID || FORCE_TEST_PYTHON
 using NUnit.Framework;
 using System;
 using System.Collections.Generic;
@@ -49,11 +49,9 @@ namespace Puerts.UnitTest
             var pythonEnv = new ScriptEnv(new BackendPython());
             pythonEnv.Eval(@"
 exec('''
-CS = CSharp()
-helper = CS.load_type('Puerts.UnitTest.ForofTestHelperPython')
+helper = puerts.load_type('Puerts.UnitTest.ForofTestHelperPython')
 list = helper.GetAStringList()
 
-# Test list iteration
 result = ''
 for i in range(list.Count):
     result = result + list.get_Item(i)

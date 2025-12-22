@@ -170,7 +170,6 @@ PyObject* CppObjectMapper::PushNativeObject(const void* TypeId, void* ObjectPtr,
             auto CacheNodePtr = Iter->second.Find(TypeId);
             if (CacheNodePtr)
             {
-                Py_INCREF(CacheNodePtr->Value);
                 return CacheNodePtr->Value;
             }
         }
@@ -681,7 +680,12 @@ static void DynObj_dealloc(DynObj* self) {
     if (self->classDefinition && self->classDefinition->Finalize && self->objectPtr && self->mapper) {
         self->classDefinition->Finalize(&g_pesapi_ffi, (void*)self->objectPtr, self->classDefinition->Data, (void*)(self->mapper->GetEnvPrivate()));
     }
-    Py_TYPE(self)->tp_free((PyObject*)self);
+    
+    // Must get type before calling tp_free, as tp_free may invalidate self
+    PyTypeObject* type = Py_TYPE(self);
+    type->tp_free((PyObject*)self);
+    // For heap types, decrement the type's reference count to match the increment done by tp_alloc
+    Py_DECREF(type);
 }
 
 static PyObject* DynObj_new(PyTypeObject* type, PyObject* args, PyObject* kwargs) {
@@ -865,7 +869,6 @@ PyObject* CppObjectMapper::FindOrCreateClass(const puerts::ScriptClassDefinition
     if (it != TypeIdToFunctionMap.end())
     {
         PyObject* cls = it->second;
-        Py_INCREF(cls);
         return cls;
     }
 

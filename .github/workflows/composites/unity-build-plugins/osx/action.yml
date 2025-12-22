@@ -11,6 +11,14 @@ inputs:
     options:
     - Release
     - Debug
+  arch:
+    type: choice
+    description: building arch
+    default: 'auto'
+    options:
+      - auto
+      - arm64
+      - x64
   websocket:
     description: enable websocket
     default: '0'
@@ -31,13 +39,25 @@ runs:
         npm i
         cd ${{ inputs.build_proj_dir }}
         cd ${{ inputs.backend }}
-        node ../../cli make --platform osx --config ${{ inputs.config }} --websocket ${{ inputs.websocket }}
+        node ../../cli make --platform osx --config ${{ inputs.config }} --arch ${{ inputs.arch }} --websocket ${{ inputs.websocket }}
         cd ..
     - name: Upload
       uses: actions/upload-artifact@v4
       with:
-        path: ./unity/Assets/core/upm/Plugins/**/*
+        path: |
+          ./unity/upms/core/Plugins/**/*
+          ./unity/upms/v8/Plugins/**/*
+          ./unity/upms/nodejs/Plugins/**/*
+          ./unity/upms/lua/Plugins/**/*
+          ./unity/upms/python/Plugins/**/*
+          ./unity/upms/quickjs/Plugins/**/*
         name: Unity_Plugins_${{ inputs.backend }}_${{ inputs.config }}_osx
     - name: Clean
       shell: bash
-      run: rm -rf ./unity/Assets/core/upm/Plugins/**/*
+      run: |
+        rm -rf ./unity/upms/core/Plugins/**/*
+        rm -rf ./unity/upms/v8/Plugins/**/*
+        rm -rf ./unity/upms/nodejs/Plugins/**/*
+        rm -rf ./unity/upms/lua/Plugins/**/*
+        rm -rf ./unity/upms/python/Plugins/**/*
+        rm -rf ./unity/upms/quickjs/Plugins/**/*

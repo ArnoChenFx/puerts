@@ -48,6 +48,12 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           backend: papi-nodejs
+      - name: wsppaddon
+        uses: ./.github/workflows/composites/unity-build-plugins/android/
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          backend: wsppaddon
+          websocket: 1
           
   ohos:
     runs-on: ubuntu-latest
@@ -81,9 +87,15 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           backend: papi-lua
+      - name: wsppaddon
+        uses: ./.github/workflows/composites/unity-build-plugins/ohos/
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          backend: wsppaddon
+          websocket: 1
 
   ios:
-    runs-on: macos-13
+    runs-on: macos-14
     steps:
       - uses: actions/checkout@v3
       - name: puerts
@@ -111,9 +123,15 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           backend: papi-nodejs
+      - name: wsppaddon
+        uses: ./.github/workflows/composites/unity-build-plugins/ios/
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          backend: wsppaddon
+          websocket: 1
 
   osx:
-    runs-on: macos-13
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v3
       - name: puerts
@@ -141,6 +159,18 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           backend: papi-nodejs
+      - name: papi-python
+        uses: ./.github/workflows/composites/unity-build-plugins/osx/
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          backend: papi-python
+          arch: arm64
+      - name: wsppaddon
+        uses: ./.github/workflows/composites/unity-build-plugins/osx/
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          backend: wsppaddon
+          websocket: 1
 
   windows:
     runs-on: windows-2022
@@ -151,31 +181,59 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           backend: puerts
+          arch: x64
       - name: papi-v8
         uses: ./.github/workflows/composites/unity-build-plugins/windows/
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           backend: papi-v8
+          arch: x64
       - name: papi-quickjs
         uses: ./.github/workflows/composites/unity-build-plugins/windows/
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           backend: papi-quickjs
+          arch: x64
       - name: papi-lua
         uses: ./.github/workflows/composites/unity-build-plugins/windows/
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           backend: papi-lua
+          arch: x64
       - name: papi-nodejs
         uses: ./.github/workflows/composites/unity-build-plugins/windows/
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           backend: papi-nodejs
+          arch: x64
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13' 
+      - name: papi-python
+        uses: ./.github/workflows/composites/unity-build-plugins/windows/
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          backend: papi-python
+          arch: x64
+      - name: wsppaddon
+        uses: ./.github/workflows/composites/unity-build-plugins/windows/
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          backend: wsppaddon
+          arch: x64
+          websocket: 1
 
   linux64:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+      - name: Install LibC++
+        run: |
+          sudo apt-get update
+          sudo apt-get install clang
+          sudo apt-get install build-essential
+          sudo apt-get install libc++-dev
+          sudo apt-get install libc++abi-dev
       - name: puerts
         uses: ./.github/workflows/composites/unity-build-plugins/linux/
         with:
@@ -201,6 +259,17 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           backend: papi-nodejs
+      - name: papi-python
+        uses: ./.github/workflows/composites/unity-build-plugins/linux/
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          backend: papi-python
+      - name: wsppaddon
+        uses: ./.github/workflows/composites/unity-build-plugins/linux/
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          backend: wsppaddon
+          websocket: 1
 
   wasm:
     runs-on: ubuntu-latest
@@ -231,47 +300,44 @@ jobs:
       - name: Retrieve version
         run: |
           echo "PESAPI_VERSION=$(cat unity/native/puerts/include/pesapi.h | grep -Po '(?<=PESAPI_VERSION\s)(\d+)')" >> $GITHUB_ENV
-          node -e "const pjson = JSON.parse(fs.readFileSync('$GITHUB_WORKSPACE/unity/Assets/core/upm/package.json', 'utf-8')); pjson.version = '${{ github.event.inputs.tag_name }}' ; fs.writeFileSync('$GITHUB_WORKSPACE/unity/Assets/core/upm/package.json', JSON.stringify(pjson))"
-            
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: Unity_Plugins_puerts_Release_*
-          path: core/upm/Plugins/
-          merge-multiple: true
+#          node -e "const pjson = JSON.parse(fs.readFileSync('$GITHUB_WORKSPACE/unity/Assets/core/upm/package.json', 'utf-8')); pjson.version = '${{ github.event.inputs.tag_name }}' ; fs.writeFileSync('$GITHUB_WORKSPACE/unity/Assets/core/upm/package.json', JSON.stringify(pjson))"
 
       - uses: actions/download-artifact@v4
         with:
-          pattern: Unity_Plugins_papi-v8_Release_*
-          path: v8/upm/Plugins/
+          pattern: Unity_Plugins_*
+          path: unity/upms/
           merge-multiple: true
 
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: Unity_Plugins_papi-quickjs_Release_*
-          path: quickjs/upm/Plugins/
-          merge-multiple: true
-
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: Unity_Plugins_papi-lua_Release_*
-          path: lua/upm/Plugins/
-          merge-multiple: true
-
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: Unity_Plugins_papi-nodejs_Release_*
-          path: nodejs/upm/Plugins/
-          merge-multiple: true
-
-      - name: Create Release Asset
+      - name: Extract versions and create release assets
         run: |
-          cp $GITHUB_WORKSPACE/LICENSE $GITHUB_WORKSPACE/unity/Assets/core/upm
-          ls -l $GITHUB_WORKSPACE/unity/Assets/core/upm
-          cd core/ && cp -r $GITHUB_WORKSPACE/unity/Assets/core/upm . && rm upm/Runtime/Src/Backends/* && rm upm/Runtime/Src/Native/Papi*Native.cs && cp $GITHUB_WORKSPACE/unity/Assets/core/upm/Runtime/Src/Backends/BackendJs.cs upm/Runtime/Src/Backends/ && tar cvfz ../PuerTS_Core_${{ github.event.inputs.tag_name }}.tar.gz upm && cd -
-          cd v8/ && mkdir -p upm/Runtime/Src/Backends && mkdir -p upm/Runtime/Src/Native && cp $GITHUB_WORKSPACE/unity/Assets/core/upm/Runtime/Src/Backends/BackendV8.cs upm/Runtime/Src/Backends/ && cp $GITHUB_WORKSPACE/unity/Assets/core/upm/Runtime/Src/Native/PapiV8Native.cs upm/Runtime/Src/Native/ && tar cvfz ../PuerTS_V8_${{ github.event.inputs.tag_name }}.tar.gz upm && cd -
-          cd quickjs/ && mkdir -p upm/Runtime/Src/Backends && mkdir -p upm/Runtime/Src/Native && cp $GITHUB_WORKSPACE/unity/Assets/core/upm/Runtime/Src/Backends/BackendQuickJS.cs upm/Runtime/Src/Backends/ && cp $GITHUB_WORKSPACE/unity/Assets/core/upm/Runtime/Src/Native/PapiQjsNative.cs upm/Runtime/Src/Native/ && tar cvfz ../PuerTS_Quickjs_${{ github.event.inputs.tag_name }}.tar.gz upm && cd -
-          cd lua/ && mkdir -p upm/Runtime/Src/Backends && mkdir -p upm/Runtime/Src/Native && cp $GITHUB_WORKSPACE/unity/Assets/core/upm/Runtime/Src/Backends/BackendLua.cs upm/Runtime/Src/Backends/ && cp $GITHUB_WORKSPACE/unity/Assets/core/upm/Runtime/Src/Native/PapiLuaNative.cs upm/Runtime/Src/Native/ && tar cvfz ../PuerTS_Lua_${{ github.event.inputs.tag_name }}.tar.gz upm && cd -
-          cd nodejs/ && mkdir -p upm/Runtime/Src/Backends && mkdir -p upm/Runtime/Src/Native && cp $GITHUB_WORKSPACE/unity/Assets/core/upm/Runtime/Src/Backends/BackendNodeJS.cs upm/Runtime/Src/Backends/ && cp $GITHUB_WORKSPACE/unity/Assets/core/upm/Runtime/Src/Native/PapiNodejsNative.cs upm/Runtime/Src/Native/ && tar cvfz ../PuerTS_Nodejs_${{ github.event.inputs.tag_name }}.tar.gz upm && cd -
+          cp LICENSE unity/upms/core/
+          cp LICENSE unity/upms/v8/
+          cp LICENSE unity/upms/nodejs/
+          cp LICENSE unity/upms/lua/
+          cp LICENSE unity/upms/python/
+          cp LICENSE unity/upms/quickjs/
+          cd unity/upms
+          CORE_VERSION=$(node -p "require('./core/package.json').version")
+          V8_VERSION=$(node -p "require('./v8/package.json').version")
+          QUICKJS_VERSION=$(node -p "require('./quickjs/package.json').version")
+          LUA_VERSION=$(node -p "require('./lua/package.json').version")
+          NODEJS_VERSION=$(node -p "require('./nodejs/package.json').version")
+          PYTHON_VERSION=$(node -p "require('./python/package.json').version")
+          WEBGL_VERSION=$(node -p "require('./webgl/package.json').version")
+          echo "CORE_VERSION=${CORE_VERSION}" >> $GITHUB_ENV
+          echo "V8_VERSION=${V8_VERSION}" >> $GITHUB_ENV
+          echo "QUICKJS_VERSION=${QUICKJS_VERSION}" >> $GITHUB_ENV
+          echo "LUA_VERSION=${LUA_VERSION}" >> $GITHUB_ENV
+          echo "NODEJS_VERSION=${NODEJS_VERSION}" >> $GITHUB_ENV
+          echo "PYTHON_VERSION=${PYTHON_VERSION}" >> $GITHUB_ENV
+          echo "WEBGL_VERSION=${WEBGL_VERSION}" >> $GITHUB_ENV
+          tar cvfz ../../PuerTS_Core_${CORE_VERSION}.tar.gz core
+          tar cvfz ../../PuerTS_V8_${V8_VERSION}.tar.gz v8
+          tar cvfz ../../PuerTS_Quickjs_${QUICKJS_VERSION}.tar.gz quickjs
+          tar cvfz ../../PuerTS_Lua_${LUA_VERSION}.tar.gz lua
+          tar cvfz ../../PuerTS_Nodejs_${NODEJS_VERSION}.tar.gz nodejs
+          tar cvfz ../../PuerTS_Python_${PYTHON_VERSION}.tar.gz python
+          tar cvfz ../../PuerTS_Webgl_${WEBGL_VERSION}.tar.gz webgl
           
       - name: Create Release
         id: create_release
@@ -280,7 +346,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           body: |
-            中文版本请查看 [`doc/unity/zhcn/changelog.md`](https://github.com/Tencent/puerts/blob/master/doc/unity/zhcn/changelog.md)
+            [`changelog.md`](https://github.com/Tencent/puerts/blob/master/unity/upms/core/changelog.md) [`changelog-hans.md`](https://github.com/Tencent/puerts/blob/master/unity/upms/core/changelog-hans.md)
             
             > difference between Node.js/Quickjs/V8: [wiki](https://github.com/Tencent/puerts/wiki/%5BUnity%5D-Release%E9%87%8C%E5%90%84%E4%B8%AAPlugin%E7%9A%84%E5%8C%BA%E5%88%AB)
           tag_name: Unity_v${{ github.event.inputs.tag_name }}
@@ -295,8 +361,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./PuerTS_Core_${{ github.event.inputs.tag_name }}.tar.gz
-          asset_name: PuerTS_Core_${{ github.event.inputs.tag_name }}.tar.gz
+          asset_path: ./PuerTS_Core_${{ env.CORE_VERSION }}.tar.gz
+          asset_name: PuerTS_Core_${{ env.CORE_VERSION }}.tar.gz
           asset_content_type: application/tgz
 
       - name: Upload V8 Backend
@@ -306,8 +372,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./PuerTS_V8_${{ github.event.inputs.tag_name }}.tar.gz
-          asset_name: PuerTS_V8_${{ github.event.inputs.tag_name }}.tar.gz
+          asset_path: ./PuerTS_V8_${{ env.V8_VERSION }}.tar.gz
+          asset_name: PuerTS_V8_${{ env.V8_VERSION }}.tar.gz
           asset_content_type: application/tgz
 
       - name: Upload Quickjs Backend
@@ -317,8 +383,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./PuerTS_Quickjs_${{ github.event.inputs.tag_name }}.tar.gz
-          asset_name: PuerTS_Quickjs_${{ github.event.inputs.tag_name }}.tar.gz
+          asset_path: ./PuerTS_Quickjs_${{ env.QUICKJS_VERSION }}.tar.gz
+          asset_name: PuerTS_Quickjs_${{ env.QUICKJS_VERSION }}.tar.gz
           asset_content_type: application/tgz
 
       - name: Upload Lua Backend
@@ -328,8 +394,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./PuerTS_Lua_${{ github.event.inputs.tag_name }}.tar.gz
-          asset_name: "PuerTS_Lua_${{ github.event.inputs.tag_name }}.tar.gz"
+          asset_path: ./PuerTS_Lua_${{ env.LUA_VERSION }}.tar.gz
+          asset_name: "PuerTS_Lua_${{ env.LUA_VERSION }}.tar.gz"
           asset_content_type: application/tgz
 
       - name: Upload Nodejs Backend
@@ -339,8 +405,28 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./PuerTS_Nodejs_${{ github.event.inputs.tag_name }}.tar.gz
-          asset_name: "PuerTS_Nodejs_${{ github.event.inputs.tag_name }}.tar.gz"
+          asset_path: ./PuerTS_Nodejs_${{ env.NODEJS_VERSION }}.tar.gz
+          asset_name: "PuerTS_Nodejs_${{ env.NODEJS_VERSION }}.tar.gz"
+          asset_content_type: application/tgz
+      - name: Upload Python Backend
+        #id: upload-release-asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./PuerTS_Python_${{ env.PYTHON_VERSION }}.tar.gz
+          asset_name: "PuerTS_Python_${{ env.PYTHON_VERSION }}.tar.gz"
+          asset_content_type: application/tgz
+      - name: Upload Webgl Backend
+        #id: upload-release-asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./PuerTS_Webgl_${{ env.WEBGL_VERSION }}.tar.gz
+          asset_name: "PuerTS_Webgl_${{ env.WEBGL_VERSION }}.tar.gz"
           asset_content_type: application/tgz
 
       # - name: Trigger demo/upm repository update

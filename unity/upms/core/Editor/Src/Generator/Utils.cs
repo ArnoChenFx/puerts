@@ -16,7 +16,7 @@ namespace Puerts.Editor
 {
     namespace Generator {
 
-        class Utils {
+        public class Utils {
 
             public const BindingFlags Flags = BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly;
 
@@ -222,7 +222,7 @@ namespace Puerts.Editor
                 return result;
             }
 
-            internal static BindingMode getBindingMode(MemberInfo mbi) 
+            public static BindingMode getBindingMode(MemberInfo mbi) 
             {
                 BindingMode strictestMode = BindingMode.FastBinding;
                 foreach (var filter in BindingModeFilters)
@@ -499,6 +499,42 @@ namespace Puerts.Editor
                 }
                 if (type.IsGenericType) return type.GetGenericTypeDefinition();
                 return type;
+            }
+
+            private static Dictionary<Type, bool> bigValueTypeCache = new Dictionary<Type, bool>();
+
+            public static bool IsBigValueType(Type type)
+            {
+                if (!type.IsValueType || type.IsPrimitive) return false;
+                if (bigValueTypeCache.ContainsKey(type))
+                {
+                    return bigValueTypeCache[type];
+                }
+
+                bool res = false;
+
+                if (type.Name == "FixedBytes4094")
+                {
+                    res = true;
+                }
+                else
+                {
+                    res = FieldCount(type) > 1024;
+                }
+
+                bigValueTypeCache.Add(type, res);
+                return res;
+            }
+
+            private static int FieldCount(Type type)
+            {
+                if (!type.IsValueType || type.IsPrimitive) return 0;
+                int count = 0;
+                foreach (var field in type.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+                {
+                    count += 1 + FieldCount(field.FieldType);
+                }
+                return count;
             }
         }
     }

@@ -213,7 +213,7 @@ void FBackendEnv::GlobalPrepare()
     if (!GPlatform)
     {
         std::string Flags = "--stack_size=856";
-#if PUERTS_DEBUG
+#if PUERTS_DEBUG || EXPOSE_GC
         Flags += " --expose-gc";
 #endif
 #if defined(PLATFORM_IOS) || defined(PLATFORM_OHOS) || defined(JITLESS)
@@ -520,7 +520,11 @@ v8::MaybeLocal<v8::Module> FBackendEnv::FetchModuleTree(v8::Isolate* isolate, v8
     {
         script_url = FV8Utils::V8String(isolate, pathForDebug.c_str());
     }
-#if defined(V8_94_OR_NEWER)
+#if defined(V8_129_OR_NEWER)
+    // V8 >= 12.9: ScriptOrigin does not take Isolate*.
+    v8::ScriptOrigin origin(script_url, 0, 0, true, -1, v8::Local<v8::Value>(), false, false, true);
+#elif defined(V8_94_OR_NEWER)
+    // Older V8 (but >= 9.4): ScriptOrigin takes Isolate*.
     v8::ScriptOrigin origin(isolate, script_url, 0, 0, true, -1, v8::Local<v8::Value>(), false, false, true);
 #else
     v8::ScriptOrigin origin(script_url, v8::Integer::New(isolate, 0), v8::Integer::New(isolate, 0), v8::True(isolate),

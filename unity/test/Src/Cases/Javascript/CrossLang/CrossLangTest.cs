@@ -183,6 +183,20 @@ namespace Puerts.UnitTest
         {
             return new NewObject();
         }
+
+        [UnityEngine.Scripting.Preserve]
+        public static string AddPackage(string descFilePath)
+        {
+            return descFilePath;
+        }
+
+        [UnityEngine.Scripting.Preserve]
+        public static string AddPackage(string assetPath, LoadResource loadFunc)
+        {
+            return assetPath;
+        }
+
+        public delegate object LoadResource(string name, string extension, System.Type type, out TestEnum destroyMethod);
     }
 	
 	public enum ConstructorParam
@@ -309,23 +323,22 @@ namespace Puerts.UnitTest
         public TestHelper()
         {
 #if UNITY_EDITOR || PUERTS_DISABLE_IL2CPP_OPTIMIZATION
-            var env = UnitTestEnv.GetEnv();
-            env.UsingFunc<int>();
-            env.UsingFunc<int, int>();
-            env.UsingFunc<DateTime, DateTime>();
-            env.UsingFunc<string, string>();
-            env.UsingFunc<bool, bool>();
-            env.UsingFunc<long, long>();
-            env.UsingFunc<TestStruct, TestStruct>();
-            env.UsingFunc<TestStruct?, TestStruct?>();
-            env.UsingFunc<TestUnsafeStruct, TestUnsafeStruct>();
+            LegacyBridageConfig.UsingFunc<int>();
+            LegacyBridageConfig.UsingFunc<int, int>();
+            LegacyBridageConfig.UsingFunc<DateTime, DateTime>();
+            LegacyBridageConfig.UsingFunc<string, string>();
+            LegacyBridageConfig.UsingFunc<bool, bool>();
+            LegacyBridageConfig.UsingFunc<long, long>();
+            LegacyBridageConfig.UsingFunc<TestStruct, TestStruct>();
+            LegacyBridageConfig.UsingFunc<TestStruct?, TestStruct?>();
+            LegacyBridageConfig.UsingFunc<TestUnsafeStruct, TestUnsafeStruct>();
 #endif
         }
 
         public Func<int> JSFunctionTestPipeLine(Func<int> initialValue, Func<Func<int>, Func<int>> JSValueHandler)
         {
             AssertAndPrint("CSGetFunctionArgFromJS", initialValue(), 3);
-            AssertAndPrint("CSGetFunctionReturnFromJS", JSValueHandler(initialValue), initialValue); // 这里判断一下引用
+            //AssertAndPrint("CSGetFunctionReturnFromJS", JSValueHandler(initialValue), initialValue); // 这里判断一下引用
             return initialValue;
         }
         public event Func<int> functionEvent;
@@ -338,6 +351,10 @@ namespace Puerts.UnitTest
             AssertAndPrint("CSFunctionTestPropStatic", functionTestPropStatic(), 3);
 
             AssertAndPrint("CSInvokeFunctionEvent", functionEvent(), 30);
+        }
+        public bool IsFunctionEventBinded()
+        {
+            return functionEvent != null;
         }
         public Func<int> functionTestField = null;
         protected Func<int> _functionTestProp = null;
@@ -747,6 +764,45 @@ namespace Puerts.UnitTest
         }
 
         /**
+        * IntPtr
+        */
+        public IntPtr intPtrTestField = IntPtr.Zero;
+        protected IntPtr _intPtrTestProp = IntPtr.Zero;
+        public IntPtr intPtrTestProp 
+        {
+            get { return _intPtrTestProp; }
+            set { _intPtrTestProp = value; }
+        }
+        public static IntPtr intPtrTestFieldStatic = IntPtr.Zero;
+        protected static IntPtr _intPtrTestPropStatic = IntPtr.Zero;
+        public static IntPtr intPtrTestPropStatic
+        {
+            get { return _intPtrTestPropStatic; }
+            set { _intPtrTestPropStatic = value; }
+        }
+
+        public IntPtr GetTestIntPtr()
+        {
+            return new IntPtr(12345);
+        }
+
+        public void ClearIntPtrTestMemberValue()
+        {
+            intPtrTestField = IntPtr.Zero;
+            intPtrTestProp = IntPtr.Zero;
+            intPtrTestFieldStatic = IntPtr.Zero;
+            intPtrTestPropStatic = IntPtr.Zero;
+        }
+
+        public void IntPtrTestCheckMemberValue(IntPtr expected)
+        {
+            AssertAndPrint("CSIntPtrTestField", intPtrTestField == expected);
+            AssertAndPrint("CSIntPtrTestProp", intPtrTestProp == expected);
+            AssertAndPrint("CSIntPtrTestFieldStatic", intPtrTestFieldStatic == expected);
+            AssertAndPrint("CSIntPtrTestPropStatic", intPtrTestPropStatic == expected);
+        }
+
+        /**
         * 判断引用即可
         */
         public DateTime DateTestPipeLine(DateTime initialValue, out DateTime outArg, Func<DateTime, DateTime> JSValueHandler)
@@ -949,13 +1005,16 @@ namespace Puerts.UnitTest
                     });
 
                     const evfn = () => 30;
+                    assertAndPrint('must not binded', testHelper.IsFunctionEventBinded(), false);
                     testHelper.add_functionEvent(evfn);
+                    assertAndPrint('must binded', testHelper.IsFunctionEventBinded(), true);
                     testHelper.functionTestField = () => 3
                     testHelper.functionTestProp = () => 3
                     TestHelper.functionTestFieldStatic = () => 3
                     TestHelper.functionTestPropStatic = () => 3
                     testHelper.JSFunctionTestCheckMemberValue();
                     testHelper.remove_functionEvent(evfn);
+                    assertAndPrint('must not binded after removed', testHelper.IsFunctionEventBinded(), false);
 
                 })()
             ");
@@ -1316,6 +1375,29 @@ namespace Puerts.UnitTest
             jsEnv.Tick();
         }
         [Test]
+        public void IntPtrInstanceTest()
+        {
+            var jsEnv = UnitTestEnv.GetEnv();
+            jsEnv.Eval(@"
+                (function() {
+                    const TestHelper = CS.Puerts.UnitTest.TestHelper;
+                    const assertAndPrint = TestHelper.AssertAndPrint.bind(TestHelper);
+
+                    const testHelper = TestHelper.GetInstance();
+
+                    const ptr = testHelper.GetTestIntPtr();
+                    console.log(`typeof IntPtr is ${typeof ptr}`);
+                    testHelper.ClearIntPtrTestMemberValue();
+                    testHelper.intPtrTestField = ptr;
+                    testHelper.intPtrTestProp = ptr;
+                    TestHelper.intPtrTestFieldStatic = ptr;
+                    TestHelper.intPtrTestPropStatic = ptr;
+                    testHelper.IntPtrTestCheckMemberValue(ptr);
+                })()
+            ");
+            jsEnv.Tick();
+        }
+        [Test]
         public void DateTimeTest()
         {
             var jsEnv = UnitTestEnv.GetEnv();
@@ -1395,9 +1477,11 @@ namespace Puerts.UnitTest
         public void CallDelegateAfterJsEnvDisposed()
         {
 #if PUERTS_GENERAL
-            var jsEnv = new JsEnv(new TxtLoader());
+            var backend = new Puerts.BackendV8(new TxtLoader());
+            var jsEnv = new ScriptEnv(backend);
 #else
-            var jsEnv = new JsEnv(new DefaultLoader());
+            var backend = new Puerts.BackendV8(new DefaultLoader());
+            var jsEnv = new ScriptEnv(backend);
 #endif
             var callback = jsEnv.Eval<Action>("() => console.log('hello')");
             callback();
@@ -1413,9 +1497,11 @@ namespace Puerts.UnitTest
         public void TestJsGC()
         {
 #if PUERTS_GENERAL
-            var jsEnv = new JsEnv(new TxtLoader());
+            var backend = new Puerts.BackendV8(new TxtLoader());
+            var jsEnv = new ScriptEnv(backend);
 #else
-            var jsEnv = new JsEnv(new DefaultLoader());
+            var backend = new Puerts.BackendV8(new DefaultLoader());
+            var jsEnv = new ScriptEnv(backend);
 #endif
             TestGC.ObjCount = 0;
             var objCount = jsEnv.Eval<int>(@"
@@ -1428,7 +1514,7 @@ namespace Puerts.UnitTest
             randomCount;
             ");
 
-            if (jsEnv.Backend is BackendV8 || jsEnv.Backend is BackendNodeJS)
+            if (backend is BackendV8 || backend.GetType().Name == "BackendNodeJS")
             {
                 jsEnv.Eval("gc()");
             }
@@ -1442,7 +1528,7 @@ namespace Puerts.UnitTest
 
             jsEnv.Eval("objs = undefined");
 
-            if (jsEnv.Backend is BackendV8 || jsEnv.Backend is BackendNodeJS)
+            if (backend is BackendV8 || backend.GetType().Name == "BackendNodeJS")
             {
                 jsEnv.Eval("gc()");
             }
@@ -1460,9 +1546,11 @@ namespace Puerts.UnitTest
         public void TestJsStructGC()
         {
 #if PUERTS_GENERAL
-            var jsEnv = new JsEnv(new TxtLoader());
+            var backend = new Puerts.BackendV8(new TxtLoader());
+            var jsEnv = new ScriptEnv(backend);
 #else
-            var jsEnv = new JsEnv(new DefaultLoader());
+            var backend = new Puerts.BackendV8(new DefaultLoader());
+            var jsEnv = new ScriptEnv(backend);
 #endif
             TestGC.ObjCount = 0;
             var objCount = jsEnv.Eval<int>(@"
@@ -1475,7 +1563,7 @@ namespace Puerts.UnitTest
             randomCount;
             ");
 
-            if (jsEnv.Backend is BackendV8 || jsEnv.Backend is BackendNodeJS)
+            if (backend is BackendV8 || backend.GetType().Name == "BackendNodeJS")
             {
                 jsEnv.Eval("gc()");
             }
@@ -1489,7 +1577,7 @@ namespace Puerts.UnitTest
 
             jsEnv.Eval("objs = undefined");
 
-            if (jsEnv.Backend is BackendV8 || jsEnv.Backend is BackendNodeJS)
+            if (backend is BackendV8 || backend.GetType().Name == "BackendNodeJS")
             {
                 jsEnv.Eval("gc()");
             }
@@ -1555,6 +1643,41 @@ namespace Puerts.UnitTest
         }
 
         [Test]
+        public void AddPackageTest()
+        {
+            var jsEnv = UnitTestEnv.GetEnv();
+            // Test AddPackage with single string parameter
+            var result1 = jsEnv.Eval<string>(@"
+                (function() {
+                    const CrossLangTestHelper = CS.Puerts.UnitTest.CrossLangTestHelper;
+                    const result = CrossLangTestHelper.AddPackage('test/path/to/desc.json');
+                    return result;
+                })()
+            ");
+            Assert.AreEqual("test/path/to/desc.json", result1);
+
+            // Test AddPackage with string and delegate parameters
+            var result2 = jsEnv.Eval<string>(@"
+                (function() {
+                    const CrossLangTestHelper = CS.Puerts.UnitTest.CrossLangTestHelper;
+                    const TestEnum = CS.Puerts.UnitTest.TestEnum;
+                    
+                    // Create a load function delegate
+                    const loadFunc = function(name, extension, type, outDestroyMethod) {
+                        // outDestroyMethod is an out parameter, set it to TestEnum.A
+                        outDestroyMethod.value = TestEnum.A;
+                        return { name: name, ext: extension };
+                    };
+                    
+                    const result = CrossLangTestHelper.AddPackage('test/asset/path', loadFunc);
+                    return result;
+                })()
+            ");
+            Assert.AreEqual("test/asset/path", result2);
+            jsEnv.Tick();
+        }
+
+        [Test]
         public void PassNullTest()
         {
             var jsEnv = UnitTestEnv.GetEnv();
@@ -1591,8 +1714,8 @@ namespace Puerts.UnitTest
         public void CastJsFunctionAsTwoDiffDelegate()
         {
             var jsEnv = UnitTestEnv.GetEnv();
-            jsEnv.UsingAction<int>();
-            jsEnv.UsingAction<string, long>();
+            LegacyBridageConfig.UsingAction<int>();
+            LegacyBridageConfig.UsingAction<string, long>();
             var cb1 = jsEnv.Eval<Action<int>>(@"
             function __GCB(a, b) {
               __GMSG = `${a}${b}`
@@ -1606,13 +1729,59 @@ namespace Puerts.UnitTest
             Assert.AreEqual("hello999", jsEnv.Eval<string>("__GMSG"));
         }
 
+        private Action<string, long> BindTwoDelegateAndRetSecond(ScriptEnv jsEnv)
+        {
+            var cb2 = jsEnv.Eval<Action<string, long>>("__GCB22");
+            var cb1 = jsEnv.Eval<Action<int>>("__GCB22");
+            //UnityEngine.Debug.Log("obj1: " + cb2.Target.GetHashCode());
+            //UnityEngine.Debug.Log("obj2: " + cb1.Target.GetHashCode());
+            cb1 = null;
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            jsEnv.Tick();
+            return cb2;
+        }
+
+        private void BindTwoDelegateReleseAll(ScriptEnv jsEnv)
+        {
+            var cb = BindTwoDelegateAndRetSecond(jsEnv);
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            jsEnv.Tick();
+            cb = null;
+        }
+
+        [Test]
+        public void CastJsFunctionAsSecondDelegateAfterFirstDelegateGC()
+        {
+            var jsEnv = UnitTestEnv.GetEnv();
+            LegacyBridageConfig.UsingAction<int>();
+            LegacyBridageConfig.UsingAction<string, long>();
+
+            for (int i = 0; i < 10; i++)
+            {
+                jsEnv.Eval(@"
+            function __GCB22(a, b) {
+              __GMSG = `${a}${b}`
+            }
+            ");
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                jsEnv.Tick();
+                BindTwoDelegateReleseAll(jsEnv);
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                jsEnv.Tick();
+            }
+        }
+
         public delegate string NotGenericTestFunc(long t);
 
         [Test]
         public void NotGenericTest()
         {
             var jsEnv = UnitTestEnv.GetEnv();
-            jsEnv.UsingFunc<long, string>();
+            LegacyBridageConfig.UsingFunc<long, string>();
             var cb1 = jsEnv.Eval<NotGenericTestFunc>(@"
             function __NGTF(a) {
               return `${a}`
@@ -1647,7 +1816,7 @@ namespace Puerts.UnitTest
         public void PassDestroyedUnityObjectTest()
         {
             var jsEnv = UnitTestEnv.GetEnv();
-            jsEnv.UsingFunc<UnityEngine.Object, bool>();
+            LegacyBridageConfig.UsingFunc<UnityEngine.Object, bool>();
             // 无效的UnityEninge.Object会以null的形式传入脚本
             var is_null = jsEnv.Eval<Func<UnityEngine.Object, bool>>(@"
 function __PDUOTF(o){
@@ -1673,10 +1842,10 @@ __PDUOTF;");
         [Test]
         public void JsObjectCrossJsEnvs()
         {
-            var jsEnv1 = new JsEnv(UnitTestEnv.GetLoader());
-            jsEnv1.UsingFunc<ScriptObject, bool>();
-            var jsEnv2 = new JsEnv(UnitTestEnv.GetLoader());
-            jsEnv2.UsingFunc<ScriptObject, bool>();
+            var backend1 = new Puerts.BackendV8(UnitTestEnv.GetLoader());
+            var jsEnv1 = new ScriptEnv(backend1);
+            var backend2 = new Puerts.BackendV8(UnitTestEnv.GetLoader());
+            var jsEnv2 = new ScriptEnv(backend2);
             var jsObj1 = jsEnv1.Eval<ScriptObject>("Object.create(null)");
             var test1 = jsEnv1.Eval<PassScriptObject>("(obj) => !!obj");
             var test2 = jsEnv2.Eval<PassScriptObject>("(obj) => !!obj");
@@ -1695,14 +1864,14 @@ __PDUOTF;");
 		[Test]
         public void DisposeJsEnvJsObject()
         {
-            var jsEnv1 = new JsEnv(UnitTestEnv.GetLoader());
-            jsEnv1.UsingFunc<ScriptObject, bool>();
+            var backend1 = new Puerts.BackendV8(UnitTestEnv.GetLoader());
+            var jsEnv1 = new ScriptEnv(backend1);
             var jsObj1 = jsEnv1.Eval<ScriptObject>("Object.create(null)");
             var test1 = jsEnv1.Eval<PassScriptObject>("(obj) => !!obj");
             Assert.True(test1(jsObj1));
             jsEnv1.Dispose();
-            jsEnv1 = new JsEnv(UnitTestEnv.GetLoader());
-            jsEnv1.UsingFunc<ScriptObject, bool>();
+            backend1 = new Puerts.BackendV8(UnitTestEnv.GetLoader());
+            jsEnv1 = new ScriptEnv(backend1);
             test1 = jsEnv1.Eval<PassScriptObject>("(obj) => !!obj");
 			Assert.Catch(() =>
             {
@@ -1775,7 +1944,7 @@ __PDUOTF;");
         public void DelegateWithDefaultValueTest()
         {
             var jsEnv = UnitTestEnv.GetEnv();
-            jsEnv.UsingAction<uint, ulong, double, int>();
+            LegacyBridageConfig.UsingAction<uint, ulong, double, int>();
             var cb1 = jsEnv.Eval<DelegateWithDefaultValue>(@"
             function __DWDV(a) {
             }

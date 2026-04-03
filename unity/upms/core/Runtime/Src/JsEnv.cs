@@ -73,17 +73,17 @@ namespace Puerts
 #else
             if (backendExpect == BackendType.V8)
             {
-                Backend = Activator.CreateInstance(PuertsIl2cpp.TypeUtils.GetType("Puerts.BackendV8"), loader) as Backend;
+                Backend = Activator.CreateInstance(Puerts.TypeUtils.GetType("Puerts.BackendV8"), loader) as Backend;
             }
 
             if (backendExpect == BackendType.Node)
             {
-                Backend = Activator.CreateInstance(PuertsIl2cpp.TypeUtils.GetType("Puerts.BackendNodeJS"), loader) as Backend;
+                Backend = Activator.CreateInstance(Puerts.TypeUtils.GetType("Puerts.BackendNodeJS"), loader) as Backend;
             }
 #endif
             if (backendExpect == BackendType.QuickJS)
             {
-                Backend = Activator.CreateInstance(PuertsIl2cpp.TypeUtils.GetType("Puerts.BackendQuickJS"), loader) as Backend;
+                Backend = Activator.CreateInstance(Puerts.TypeUtils.GetType("Puerts.BackendQuickJS"), loader) as Backend;
             }
             if (Backend == null)
             {
@@ -121,7 +121,7 @@ namespace Puerts
                         InitInnerEnv((BackendType)i, libVersionExpect, loader, debugPort);
                         found = true;
                         break;
-                    } catch (Exception e){ }
+                    } catch (DllNotFoundException e){ }
                 }
                 if (!found)
                 {
@@ -168,104 +168,41 @@ namespace Puerts
         {
             return env.Eval<TResult>(chunk, chunkName);
         }
-
+        //后续新增一个配置取代这种配置
         public void UsingAction<T1>()
         {
-#if THREAD_SAFE
-            lock(this) {
-#endif
-            // TODO
-#if THREAD_SAFE
-            }
-#endif
         }
 
         public void UsingAction<T1, T2>()
         {
-#if THREAD_SAFE
-            lock(this) {
-#endif
-            // TODO
-#if THREAD_SAFE
-            }
-#endif
         }
 
         public void UsingAction<T1, T2, T3>()
         {
-#if THREAD_SAFE
-            lock(this) {
-#endif
-            // TODO
-#if THREAD_SAFE
-            }
-#endif
         }
 
         public void UsingAction<T1, T2, T3, T4>()
         {
-#if THREAD_SAFE
-            lock(this) {
-#endif
-            // TODO
-#if THREAD_SAFE
-            }
-#endif
         }
 
         public void UsingFunc<TResult>()
         {
-#if THREAD_SAFE
-            lock(this) {
-#endif
-            // TODO
-#if THREAD_SAFE
-            }
-#endif
         }
 
         public void UsingFunc<T1, TResult>()
         {
-#if THREAD_SAFE
-            lock(this) {
-#endif
-            // TODO
-#if THREAD_SAFE
-            }
-#endif
         }
 
         public void UsingFunc<T1, T2, TResult>()
         {
-#if THREAD_SAFE
-            lock(this) {
-#endif
-            // TODO
-#if THREAD_SAFE
-            }
-#endif
         }
 
         public void UsingFunc<T1, T2, T3, TResult>()
         {
-#if THREAD_SAFE
-            lock(this) {
-#endif
-            // TODO
-#if THREAD_SAFE
-            }
-#endif
         }
 
         public void UsingFunc<T1, T2, T3, T4, TResult>()
         {
-#if THREAD_SAFE
-            lock(this) {
-#endif
-            // TODO
-#if THREAD_SAFE
-            }
-#endif
         }
 
         public void SetDefaultBindingMode(BindingMode bindingMode)
@@ -310,7 +247,7 @@ namespace Puerts
         [MonoPInvokeCallback(typeof(LogCallback))]
         public static void LogCallback(IntPtr msg)
         {
-            var msgStr = Marshal.PtrToStringUTF8(msg) ?? string.Empty;
+            var msgStr = MarshalExtensions.PtrToStringUTF8(msg);
 #if PUERTS_GENERAL || (UNITY_WSA && !UNITY_EDITOR)
             Console.WriteLine(msgStr);
 #else
@@ -321,7 +258,7 @@ namespace Puerts
         [MonoPInvokeCallback(typeof(LogCallback))]
         public static void LogWarningCallback(IntPtr msg)
         {
-            var msgStr = Marshal.PtrToStringUTF8(msg) ?? string.Empty;
+            var msgStr = MarshalExtensions.PtrToStringUTF8(msg);
 #if PUERTS_GENERAL || (UNITY_WSA && !UNITY_EDITOR)
             Console.WriteLine(msgStr);
 #else
@@ -332,7 +269,7 @@ namespace Puerts
         [MonoPInvokeCallback(typeof(LogCallback))]
         public static void LogErrorCallback(IntPtr msg)
         {
-            var msgStr = Marshal.PtrToStringUTF8(msg) ?? string.Empty;
+            var msgStr = MarshalExtensions.PtrToStringUTF8(msg);
 #if PUERTS_GENERAL || (UNITY_WSA && !UNITY_EDITOR)
             Console.WriteLine(msgStr);
 #else
@@ -369,5 +306,45 @@ namespace Puerts
             env.Dispose();
             disposed = true;
         }
+    }
+
+    public static class LegacyBridageConfig
+    {
+        public static void UsingAction<T1>()
+        {
+        }
+
+        public static void UsingAction<T1, T2>()
+        {
+        }
+
+        public static void UsingAction<T1, T2, T3>()
+        {
+        }
+
+        public static void UsingAction<T1, T2, T3, T4>()
+        {
+        }
+
+        public static void UsingFunc<TResult>()
+        {
+        }
+
+        public static void UsingFunc<T1, TResult>()
+        {
+        }
+
+        public static void UsingFunc<T1, T2, TResult>()
+        {
+        }
+
+        public static void UsingFunc<T1, T2, T3, TResult>()
+        {
+        }
+
+        public static void UsingFunc<T1, T2, T3, T4, TResult>()
+        {
+        }
+
     }
 }

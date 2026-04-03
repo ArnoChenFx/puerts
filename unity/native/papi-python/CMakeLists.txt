@@ -59,7 +59,13 @@ if(ANDROID)
     message(STATUS "Python library: ${Python3_LIBRARIES}")
 else()
     # For other platforms, use find_package
-    find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
+	if("${Python3_VERSION}" MATCHES "3.14")
+	    message(STATUS "Python VERSION == ${Python3_VERSION}")
+        find_package(Python3 ${Python3_VERSION} COMPONENTS Interpreter Development REQUIRED)
+    else ()
+	    message(STATUS "Python VERSION != 3.14")
+	    find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
+	endif()
 endif()
 
 include_directories(
@@ -109,6 +115,10 @@ if(ANDROID)
             -Wl,--no-undefined
             -Wl,--as-needed
     )
+endif()
+
+if(UNIX AND NOT APPLE AND NOT ANDROID)
+    target_link_libraries(PapiPython dl)
 endif()
 
 target_compile_definitions(PapiPython PRIVATE EASTL_DLL USING_EASTL)

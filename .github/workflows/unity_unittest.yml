@@ -30,9 +30,10 @@ on:
       - .github/workflows/composites/**
 #    branches-ignore:
 #      - 'unity-3.0.0'
-  
-env:
-  RUNID: 613573412
+
+concurrency:
+  group: unity-ci-global
+  cancel-in-progress: false
 
 jobs:
 #  unittest-win-unity:
@@ -118,8 +119,12 @@ jobs:
           
   unittest-run-testcase-and-build-android:
     runs-on: macos-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v3
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14' 
       - name: Build Android Plugin # 得先构建Android插件，如果先运行UT会导致meta被Editor删除
         shell: bash
         run: |
@@ -354,9 +359,9 @@ jobs:
       - uses: actions/setup-dotnet@v3
         with:
           dotnet-version: '6.x.x'
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
-          python-version: '3.13' 
+          python-version: '3.14' 
       - uses: actions/checkout@v3
       - name: UnitTest-v8
         run: |
@@ -405,12 +410,15 @@ jobs:
           node ../../cli dotnet-test -ts
           
   unittest-linux-dotnet:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     steps:
       - uses: actions/setup-dotnet@v3
         with:
           dotnet-version: '6.x.x'
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14' 
       - uses: actions/checkout@v3
       - name: Install LibC++
         run: |

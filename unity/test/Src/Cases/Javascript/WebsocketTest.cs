@@ -85,13 +85,16 @@ namespace Puerts.UnitTest
     [TestFixture]
     public class WebsocketTest
     {
+#if !UNITY_WEBGL || UNITY_EDITOR
         [Test]
         public async Task SmokeTest()
         {
 #if PUERTS_GENERAL
-            var jsEnv = new JsEnv(new TxtLoader());
+            var backend = new Puerts.BackendV8(new TxtLoader());
+            var jsEnv = new ScriptEnv(backend);
 #else
-            var jsEnv = new JsEnv(new DefaultLoader());
+            var backend = new Puerts.BackendV8(new DefaultLoader());
+            var jsEnv = new ScriptEnv(backend);
 #endif
             WebSocketServer wss = new WebSocketServer("http://localhost:5123/");
             Action waitJsEnv = () =>
@@ -170,6 +173,7 @@ namespace Puerts.UnitTest
 
             wss.Stop();
         }
+#endif
     }
 }
 //#endif

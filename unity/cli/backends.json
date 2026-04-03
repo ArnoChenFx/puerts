@@ -60,11 +60,14 @@
         }
     },
     "papi-v8": {
-        "url": "https://github.com/puerts/backend-v8/releases/download/V8_9.4.146.24__241009/v8_bin_9.4.146.24.tgz",
-        "tar-output" : "v8_9.4.146.24",
+        "url": "https://github.com/puerts/backend-v8/releases/download/V8_13.6.233.17__260113/v8_bin_13.6.233.17.tar.gz",
+        "tar-output" : "v8_13.6.233.17",
         "config": {
             "definition": [
-                "V8_94_OR_NEWER"
+                "V8_94_OR_NEWER",
+				"V8_118_OR_NEWER",
+				"V8_129_OR_NEWER",
+				"V8_136_OR_NEWER"
             ],
             "include": [
                 "/Inc"

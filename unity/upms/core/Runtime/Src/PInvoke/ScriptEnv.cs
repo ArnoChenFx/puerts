@@ -26,6 +26,8 @@ namespace Puerts
 
         private Backend backend;
 
+        public Backend Backend => backend;
+
         IntPtr papis;
         IntPtr envRef;
 
@@ -101,7 +103,10 @@ namespace Puerts
 
             PuertsNative.pesapi_close_scope(papis, scope);
 
-            PuertsIl2cpp.ExtensionMethodInfo.LoadExtensionMethodInfo();
+            Puerts.ExtensionMethodInfo.LoadExtensionMethodInfo();
+
+            // Auto-discover and call generated static wrapper registration
+            AutoRegisterStaticWrappers();
             
             if (debugPort != -1)
             {
@@ -139,10 +144,40 @@ namespace Puerts
 
         internal static pesapi_on_native_object_exit OnObjectReleaseRefDelegate = OnObjectReleaseRef;
 
+        public void AddRegisterInfoGetter(Type type, Func<TypeMapping.RegisterInfo> getter)
+        {
+#if THREAD_SAFE
+            lock(this) {
+#endif
+            TypeRegister.Instance.AddRegisterInfoGetter(type, getter);
+#if THREAD_SAFE
+            }
+#endif
+        }
+
+        /// <summary>
+        /// Auto-discover and call the generated PuerRegisterInfo_Gen class to register static wrappers.
+        /// Looks for PuertsStaticWrap.PuerRegisterInfo_Gen.AddRegisterInfoGetterIntoScriptEnv(ScriptEnv)
+        /// or PuertsStaticWrap.PuerRegisterInfo_Gen.AddRegisterInfoGetterIntoJsEnv(JsEnv) via reflection.
+        /// </summary>
+        private void AutoRegisterStaticWrappers()
+        {
+            var registerType = Puerts.TypeUtils.GetType("PuertsStaticWrap.PuerRegisterInfo_Gen");
+            if (registerType == null) return;
+
+            var method = registerType.GetMethod("AddRegisterInfoGetterIntoScriptEnv",
+                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static,
+                null, new Type[] { typeof(ScriptEnv) }, null);
+            if (method != null)
+            {
+                method.Invoke(null, new object[] { this });
+            }
+        }
+
         [UnityEngine.Scripting.Preserve]
         public Type GetTypeByString(string className)
         {
-            return PuertsIl2cpp.TypeUtils.GetType(className);
+            return Puerts.TypeUtils.GetType(className);
         }
 
         [UnityEngine.Scripting.Preserve]
@@ -154,7 +189,7 @@ namespace Puerts
         [UnityEngine.Scripting.Preserve]
         public void LoadAddon(string name)
         {
-            Type type = PuertsIl2cpp.TypeUtils.GetType("Puerts." + name + "Native");
+            Type type = Puerts.TypeUtils.GetType("Puerts." + name + "Native");
             type.GetMethod("Register").Invoke(null, new object[] { PuertsNative.GetRegisterApi(), TypeRegister.Instance.Registry });
         }
 
@@ -176,7 +211,7 @@ namespace Puerts
                 var wrap = ExpressionsWrap.BuildMethodWrap(methods[0].DeclaringType, methods.ToArray(), true);
                 TypeRegister.Instance.callbacksCache.Add(wrap);
                 pesapi_function_finalize functionFinalize = null;
-                functionFinalize = (IntPtr apis, IntPtr data, IntPtr env_private) =>
+                functionFinalize = (IntPtr innerApis, IntPtr data, IntPtr env_private) =>
                 {
                     TypeRegister.Instance.callbacksCache.Remove(wrap);
                     TypeRegister.Instance.callbacksCache.Remove(functionFinalize);
@@ -224,7 +259,7 @@ namespace Puerts
                 if (PuertsNative.pesapi_has_caught(papis, scope))
                 {
                     IntPtr ptr = PuertsNative.pesapi_get_exception_as_string(papis, scope, true);
-                    string msg = Marshal.PtrToStringUTF8(ptr);
+                    string msg = MarshalExtensions.PtrToStringUTF8(ptr);
                     throw new InvalidOperationException(msg);
                 }
                 return typeof(__NOTHING) == typeof(TResult) ? default(TResult) : ExpressionsWrap.GetNativeTranlator<TResult>()(papis, env, res);
@@ -347,27 +382,30 @@ namespace Puerts
 
         public void Dispose()
         {
-#if THREAD_SAFE
-            lock(this) {
-#endif
             Dispose(true);
-#if THREAD_SAFE
-            }
-#endif
         }
 
         private bool disposed = false;
 
         protected virtual void Dispose(bool dispose)
         {
+#if THREAD_SAFE
+            lock(this) {
+#endif
             if (disposed) return;
             backend.OnExit(this);
             backend.CloseRemoteDebugger();
             // quickjs void JS_FreeRuntime(JSRuntime *): assertion "list_empty(&rt->gc_obj_list)"
             TickHandler = null;
             moduleExecutor = null;
+#if THREAD_SAFE
+            }
+#endif
             GC.Collect();
             GC.WaitForPendingFinalizers();
+#if THREAD_SAFE
+            lock(this) {
+#endif
             cleanupPendingKillScriptObjects();
 
             foreach (var weakRef in allocedJsScriptObject)
@@ -387,11 +425,16 @@ namespace Puerts
             backend.DestroyEnvRef(envRef);
             disposed = true;
 
+#if THREAD_SAFE
             lock (scriptEnvs)
             {
-                scriptEnvs[Idx] = null;
+#endif
+            scriptEnvs[Idx] = null;
+#if THREAD_SAFE
             }
-        }
+            }
+#endif
+            }
 
         public bool CheckLiveness(bool shouldThrow = true)
         {
